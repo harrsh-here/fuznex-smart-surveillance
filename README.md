@@ -45,5 +45,3 @@ Create a **private** GitHub repository. Protect `main`; develop on `feature/<own
 
 ## Model status
 SCRFD-500M-KPS selected as detector after custom evaluation. Face recognition model and decision thresholds remain to be validated. No model weights are bundled.
-
-# fuznex-smart-surveillance

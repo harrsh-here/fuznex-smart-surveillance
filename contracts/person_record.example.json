@@ -1,0 +1,13 @@
+{
+  "person_id": "DEMO001",
+  "display_name": "Demo Person",
+  "enrollment_status": "active",
+  "profile_photo_ref": "storage-managed-by-backend",
+  "templates": [
+    {
+      "template_id": "DEMO-T001",
+      "model_version": "recognizer-not-selected",
+      "embedding": [0.1, -0.2, 0.3]
+    }
+  ]
+}

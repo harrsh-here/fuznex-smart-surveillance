@@ -1,0 +1,49 @@
+# Python and editor state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Secrets and local configuration
+*.pem
+*.key
+secrets/
+config.local.*
+
+# Biometric or camera data -- never commit
+dataset/
+data/
+local_data/
+uploads/
+face_images/
+embeddings/
+cctv_alerts/
+*.db
+*.sqlite
+*.sqlite3
+
+# Model artifacts and downloaded weights -- retrieve outside Git
+*.onnx
+*.pt
+*.pth
+*.tflite
+*.h5
+model.yml
+model.yaml
+face_models/
+models/
+
+# Generated benchmark output and large media
+research/**/runs/
+research/**/results/
+research/**/outputs/
+*.mp4
+*.avi
+*.mov
+*.zip

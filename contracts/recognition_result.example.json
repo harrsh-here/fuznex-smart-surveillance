@@ -1,0 +1,14 @@
+{
+  "camera_id": "CAM01",
+  "timestamp": "2026-11-07T15:58:00+05:30",
+  "model_version": "recognizer-not-selected",
+  "faces": [
+    {
+      "bbox_xywh": [120, 80, 90, 110],
+      "detection_score": 0.94,
+      "person_id": null,
+      "status": "uncertain",
+      "similarity_score": null
+    }
+  ]
+}
