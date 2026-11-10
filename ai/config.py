@@ -8,6 +8,7 @@ class SFaceConfig:
     detector_model: Path
     recognizer_model: Path
     detector_threshold: float = 0.55
+    detector_input_size: tuple[int, int] = (640, 640)
     detector_interval_frames: int = 5
     recognition_refresh_seconds: float = 1.0
     cosine_threshold: float = 0.363

@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 from ai.config import SFaceConfig
+from ai.detection import SCRFD500MDetector
 from ai.pipeline import SFacePipeline
 from ai.recognition import decide
 
@@ -14,6 +15,13 @@ class Recognizer:
         return np.array([1.,0.],dtype=np.float32),np.repeat(crop[...,None],3,axis=2)
 
 class PipelineTests(unittest.TestCase):
+    def test_detector_input_size_is_explicit_and_defaults_to_live_setting(self):
+        cfg=SFaceConfig(detector_model="d",recognizer_model="s")
+        self.assertEqual(cfg.detector_input_size,(640,640))
+        self.assertEqual(SFaceConfig(detector_model="d",recognizer_model="s",detector_input_size=(320,320)).detector_input_size,(320,320))
+    def test_detector_rejects_invalid_input_sizes_before_model_load(self):
+        for value in (None,(0,320),(-1,320),(320,),[320,320],("320",320)):
+            with self.assertRaises(ValueError): SCRFD500MDetector("not-loaded.onnx",input_size=value)
     def test_process_frame_returns_backend_neutral_contract_and_refreshes(self):
         clock=[0.]
         cfg=SFaceConfig(detector_model="det.onnx",recognizer_model="sface.onnx",recognition_refresh_seconds=1.0,min_face_size_px=10)
