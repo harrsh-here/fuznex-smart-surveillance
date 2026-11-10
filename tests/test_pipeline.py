@@ -2,6 +2,7 @@ import unittest
 import numpy as np
 from ai.config import SFaceConfig
 from ai.detection import SCRFD500MDetector
+from ai.tracking import MultiFaceTracker
 from ai.pipeline import SFacePipeline
 from ai.recognition import decide
 
@@ -22,6 +23,12 @@ class PipelineTests(unittest.TestCase):
     def test_detector_rejects_invalid_input_sizes_before_model_load(self):
         for value in (None,(0,320),(-1,320),(320,),[320,320],("320",320)):
             with self.assertRaises(ValueError): SCRFD500MDetector("not-loaded.onnx",input_size=value)
+    def test_ambiguous_association_starts_fresh_tracks(self):
+        tracker=MultiFaceTracker(iou_threshold=.1,ambiguity_margin=.2)
+        k=np.zeros((5,2),dtype=np.float32)
+        tracker.update([(np.array([0,0,10,10,.9],dtype=np.float32),k),(np.array([8,0,18,10,.9],dtype=np.float32),k)],1)
+        visible=tracker.update([(np.array([4,0,14,10,.9],dtype=np.float32),k)],2)
+        self.assertEqual([track.track_id for track in visible],[3])
     def test_process_frame_returns_backend_neutral_contract_and_refreshes(self):
         clock=[0.]
         cfg=SFaceConfig(detector_model="det.onnx",recognizer_model="sface.onnx",recognition_refresh_seconds=1.0,min_face_size_px=10)

@@ -16,13 +16,17 @@ class Track:
     state: str = "unevaluable"; identity_id: str | None = None; score: float | None = None; quality_reason: str | None = "awaiting measurement"
 
 class MultiFaceTracker:
-    def __init__(self, iou_threshold: float=0.2, ttl_updates: int=2, smoothing: float=0.35):
-        self.iou_threshold=iou_threshold; self.ttl_updates=ttl_updates; self.smoothing=smoothing; self._next=1; self.tracks: dict[int,Track]={}
+    def __init__(self, iou_threshold: float=0.2, ttl_updates: int=2, smoothing: float=0.35, ambiguity_margin: float=.05):
+        self.iou_threshold=iou_threshold; self.ttl_updates=ttl_updates; self.smoothing=smoothing; self.ambiguity_margin=ambiguity_margin; self._next=1; self.tracks: dict[int,Track]={}
     def update(self, detections: list[tuple[np.ndarray,np.ndarray]], frame_no: int) -> list[Track]:
         pairs=sorted(((iou(t.box,b),tid,idx) for tid,t in self.tracks.items() for idx,(b,_) in enumerate(detections) if iou(t.box,b)>=self.iou_threshold), reverse=True)
+        by_track:dict[int,list[float]]={tid:[] for tid in self.tracks}; by_detection:dict[int,list[float]]={idx:[] for idx in range(len(detections))}
+        for value,tid,idx in pairs: by_track[tid].append(value); by_detection[idx].append(value)
+        ambiguous_tracks={tid for tid,values in by_track.items() if len(values)>1 and max(values)-sorted(values)[-2]<=self.ambiguity_margin}
+        ambiguous_detections={idx for idx,values in by_detection.items() if len(values)>1 and max(values)-sorted(values)[-2]<=self.ambiguity_margin}
         used_t:set[int]=set(); used_d:set[int]=set()
         for _,tid,idx in pairs:
-            if tid in used_t or idx in used_d: continue
+            if tid in used_t or idx in used_d or tid in ambiguous_tracks or idx in ambiguous_detections: continue
             t=self.tracks[tid]; b,k=detections[idx]; was_missed=t.missed>0
             t.display_box=self.smoothing*t.display_box+(1-self.smoothing)*b; t.display_box[4]=b[4]; t.box=b; t.landmarks=k; t.last_seen_frame=frame_no; t.missed=0
             if was_missed: t.last_measurement=None

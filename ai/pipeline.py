@@ -10,7 +10,7 @@ from ai.types import FaceResult, FrameResult
 class SFacePipeline:
     def __init__(self, config:SFaceConfig, detector, recognizer, templates:dict[str,np.ndarray]|None=None, clock=time.monotonic):
         self.config=config; self.detector=detector; self.recognizer=recognizer; self.templates=templates or {}; self.clock=clock; self.frame_no=0
-        self.tracker=MultiFaceTracker(config.association_iou,config.track_ttl_updates)
+        self.tracker=MultiFaceTracker(config.association_iou,config.track_ttl_updates,ambiguity_margin=config.association_ambiguity_margin)
     def set_templates(self, templates:dict[str,np.ndarray]) -> None: self.templates={k:np.asarray(v,dtype=np.float32) for k,v in templates.items()}
     def process_frame(self, frame:np.ndarray) -> FrameResult:
         self.frame_no+=1; detections=self.detector.detect(frame); visible=self.tracker.update(detections,self.frame_no); now=self.clock()

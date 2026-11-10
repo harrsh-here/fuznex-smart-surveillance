@@ -16,4 +16,5 @@ class SFaceConfig:
     min_face_size_px: float = 40.0
     track_ttl_updates: int = 2
     association_iou: float = 0.20
+    association_ambiguity_margin: float = 0.05
     model_version: str = "sface-2021dec-experimental"
