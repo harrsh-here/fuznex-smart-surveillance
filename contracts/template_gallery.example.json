@@ -1,0 +1,6 @@
+{
+  "schema_version": "0.1-draft",
+  "model_version": "sface-2021dec-experimental",
+  "templates": [{"identity_id":"backend-person-id","embedding":"backend-supplied normalized float vector; never send in frontend payloads"}],
+  "notes":"Backend owns persistence and authorization. AI receives active, model-compatible templates in memory."
+}

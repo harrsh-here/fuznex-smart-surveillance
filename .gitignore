@@ -24,6 +24,9 @@ uploads/
 face_images/
 embeddings/
 cctv_alerts/
+ai/local_enrollments.json
+ai/local_calibration.json
+ai/reports/
 *.db
 *.sqlite
 *.sqlite3

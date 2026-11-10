@@ -1,12 +1,21 @@
-# AI module — Harsh
+# AI integration module
 
-Owns: SCRFD face detection adapter, face quality checks, alignment, embeddings, enrollment validation, template matching, calibrated `known/unknown/uncertain` decisions and CPU evaluation.
+`ai/` exposes a reusable, local SCRFD-500M-KPS + SFace frame pipeline. It has no
+camera capture, database, alerts, UI, cloud, or persistence dependency.
 
-Does **not** own: database persistence, main backend, UI, alerts or camera transport.
+```python
+from ai.config import SFaceConfig
+from ai.detection import SCRFD500MDetector
+from ai.pipeline import SFacePipeline
+from ai.recognition import SFaceRecognizer
 
-Current scaffold contains a mock template provider for interface development only. It does not perform face recognition or infer identities. Keep model weights outside Git.
+config = SFaceConfig(detector_model=..., recognizer_model=...)
+pipeline = SFacePipeline(config, SCRFD500MDetector(config.detector_model), SFaceRecognizer(config.recognizer_model))
+pipeline.set_templates({"backend-person-id": normalized_embedding})
+result = pipeline.process_frame(frame)  # OpenCV BGR ndarray
+payload = result.to_dict()
+```
 
-The archived LBPH prototype is isolated in `research/legacy_prototype/` and is
-never imported from this package. Keep production integrations behind
-`RecognitionSystem`; do not import code that loads local biometric data, camera
-devices, or model weights at module-import time.
+`match_score` is cosine similarity, not a confidence percentage. The default
+SFace reference threshold is experimental and is not a FuzNex accuracy claim.
+See `../docs/ai-architecture.md` and `model-manifest.json` before integration.

@@ -1,14 +1,17 @@
 {
-  "camera_id": "CAM01",
-  "timestamp": "2026-11-07T15:58:00+05:30",
-  "model_version": "recognizer-not-selected",
-  "faces": [
-    {
-      "bbox_xywh": [120, 80, 90, 110],
-      "detection_score": 0.94,
-      "person_id": null,
-      "status": "uncertain",
-      "similarity_score": null
-    }
-  ]
+  "schema_version": "0.2-draft",
+  "model_version": "sface-2021dec-experimental",
+  "faces": [{
+    "bbox_xyxy": [120.0, 80.0, 210.0, 190.0],
+    "bbox_xywh": [120.0, 80.0, 90.0, 110.0],
+    "track_id": 7,
+    "detection_score": 0.94,
+    "identity_id": "backend-person-id-or-null",
+    "state": "known",
+    "match_score": 0.61,
+    "score_age_ms": 0,
+    "threshold_source": "OpenCV SFace LFW cosine reference",
+    "quality_reason": null
+  }],
+  "notes": {"match_score":"cosine similarity, not probability", "state_values":["known","unknown","uncertain","unevaluable"]}
 }

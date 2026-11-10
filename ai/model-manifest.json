@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "weights_are_not_bundled": true,
+  "models": [
+    {"id":"scrfd-500m-kps","filename":"det_500m.onnx","bytes":2524817,"sha256":"5e4447f50245bbd7966bd6c0fa52938c61474a04ec7def48753668a9d8b4ea3a","origin":"local FuzNex AI Lab; original publisher/source record unresolved","license":"unverified; no redistribution or automated download approval","git_lfs":"not proposed"},
+    {"id":"sface-2021dec","filename":"face_recognition_sface_2021dec.onnx","bytes":38696353,"sha256":"0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79","origin":"OpenCV Zoo SFace official release","source_url":"https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface","license":"pretrained-weight commercial and redistribution permissions unresolved; not bundled or fetched automatically","git_lfs":"not proposed"}
+  ]
+}
