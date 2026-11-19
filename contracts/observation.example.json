@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.1.0-draft",
+  "camera_id": "consumer-supplied-camera-id",
+  "stream_epoch": "per-process-opaque-epoch",
+  "frame_seq": 0,
+  "detections": [
+    {
+      "detection_id": "d0",
+      "kind": "person",
+      "class_id": 0,
+      "bbox_xyxy": [10.0, 20.0, 100.0, 220.0],
+      "detection_confidence": 0.8,
+      "verified_identity": null,
+      "identity_state": "not_applicable"
+    }
+  ],
+  "detection_trace": {"raw_emitted_counts": {"face": 0, "person": 1, "laptop": 0}},
+  "notes": "Provisional local observation contract. No face-to-person association or identity publication is permitted."
+}

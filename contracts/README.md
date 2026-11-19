@@ -19,4 +19,8 @@ SPECTRA DIAG remains identity-disabled in its production contract. Its local
 diagnostic mode is off by default and requires explicitly supplied local
 SCRFD/SFace paths and a caller-owned, read-only gallery. Identity IDs,
 candidates, embeddings, and templates are never emitted in diagnostic output.
+
+`observation.example.json` is the provisional `1.1.0-draft` local observation
+contract for independent consumers. `detection_trace` supports frame-level
+duplicate-detection investigation and must not be used for identity inference.
 images, embeddings, databases, or credentials in Git or frontend payloads.

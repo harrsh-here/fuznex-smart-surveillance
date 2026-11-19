@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0-draft"
 
 
 def utc_now() -> str:
