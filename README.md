@@ -1,5 +1,11 @@
 # FuzNex Smart Surveillance System
 
+## Portable AI integration
+
+The portable AI workspace is under [`ai/`](ai/README.md). Its migration guide,
+platform setup, Kaggle notebook, model-safety requirements, test command, and
+known limits are documented in [`docs/portable-ai-migration.md`](docs/portable-ai-migration.md).
+
 Shared development repository for the FYP **AI-Based Smart Surveillance System with Face Detection and Activity Monitoring**.
 
 ## Phase

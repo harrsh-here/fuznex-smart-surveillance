@@ -5,6 +5,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+.ci-venv/
 venv/
 .env
 .env.*
@@ -27,6 +28,10 @@ cctv_alerts/
 ai/local_enrollments.json
 ai/local_calibration.json
 ai/reports/
+ai/runtime/
+ai/benchmarks/
+diagnostics/
+ai/notebooks/.ipynb_checkpoints/
 *.db
 *.sqlite
 *.sqlite3

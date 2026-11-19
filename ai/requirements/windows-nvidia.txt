@@ -1,0 +1,3 @@
+-r yolo.txt
+# Install the PyTorch CUDA build matching the installed NVIDIA driver from
+# https://pytorch.org/get-started/locally/ before running with device=cuda.
