@@ -27,6 +27,13 @@ are in [`../docs/portable-ai-migration.md`](../docs/portable-ai-migration.md).
 face identity. `console.py` is optional and intended for local Windows testing;
 headless consumers should call `CombinedPipeline.process_frame` directly.
 
+## Integration handoff
+
+Backend and independent consumers must start with
+[`INTEGRATION_HANDOFF.md`](INTEGRATION_HANDOFF.md). It documents the actual
+`1.1.0-draft` combined-observation output, sanitized examples, verification,
+failure boundaries, runtime setup, and the privacy/unsupported-field rules.
+
 ## Private SFace enrollment (operator workstation only)
 
 The archived LBPH data is not compatible with SFace and is never read or
