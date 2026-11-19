@@ -89,19 +89,26 @@ The numbers below are illustrative only; they are structurally derived from `Com
 
 ## Setup and verification
 
-From the repository root on Windows CPU:
+The current `scripts/setup_windows_cpu.ps1` is the optional **YOLO runtime**
+installer: it creates `.venv` and installs `ai/requirements/yolo.txt`. It is
+not the dependency-light contract-test setup and it does not install `pytest`.
+Use it only when a locally approved YOLO weight will be exercised.
+
+For the independent consumer/contract checks, install the explicit test
+dependencies in an isolated environment from the repository root:
 
 ```powershell
-./scripts/setup_windows_cpu.ps1
+python -m venv .venv
+& .\.venv\Scripts\Activate.ps1
+python -m pip install numpy pytest
 python -m unittest discover -s tests -p "test_combined.py" -v
-python -m unittest discover -s tests -p "test_spectra_diag.py" -v
+python -m pytest tests/test_observation_contract.py -q
 ```
 
-The independent contract test uses `pytest` style:
+The broader diagnostic test is optional for a contract consumer but can run in
+the same environment:
 
 ```powershell
-python -m pip install pytest
-python -m pytest tests/test_observation_contract.py -q
 python -m pytest -q
 ```
 
