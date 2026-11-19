@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import hashlib
 import math
 import os
 import time
@@ -70,7 +71,17 @@ class YoloPersonLaptopDetector:
             if class_id in COCO_CLASSES:
                 detections.append({
                     "kind": COCO_CLASSES[class_id],
+                    "class_id": class_id,
                     "bbox_xyxy": [float(value) for value in box.xyxy[0].tolist()],
                     "detection_confidence": float(box.conf.item()),
                 })
         return detections
+
+    def provenance(self) -> dict[str, Any]:
+        """Return local, non-secret evidence of the exact loaded weight."""
+        digest = hashlib.sha256(self.config.model_path.read_bytes()).hexdigest()
+        return {"model": "yolo11n", "weight_path": str(self.config.model_path),
+                "sha256": digest, "classes": COCO_CLASSES.copy(),
+                "input_size": self.config.input_size,
+                "confidence_threshold": self.config.confidence,
+                "device": self.config.device, "load_ms": self.load_ms}

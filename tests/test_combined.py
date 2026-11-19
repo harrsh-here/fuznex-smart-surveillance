@@ -34,6 +34,8 @@ class CombinedTests(unittest.TestCase):
         self.assertIsNone(face["track"])
         self.assertEqual(face["identity_state"], "identity_disabled")
         self.assertIn("IDENTITY_ASSOCIATION_DISABLED", face["uncertainty_reasons"])
+        self.assertEqual(face["quality"]["pixel_width"], 19.0)
+        self.assertEqual(face["quality"]["landmarks"], "not_published_by_combined_contract")
 
     def test_partial_failure_is_sanitized(self):
         result = CombinedPipeline(Face(), Broken()).process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)

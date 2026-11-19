@@ -46,12 +46,17 @@ class CombinedPipeline:
         try:
             branch_start = self.clock()
             for face in self.face_pipeline.process_frame(frame).faces:
+                box = _box(face.bbox_xyxy, width, height)
                 detections.append({
-                    "kind": "face", "bbox_xyxy": _box(face.bbox_xyxy, width, height),
+                    "kind": "face", "bbox_xyxy": box,
                     "detection_confidence": float(face.detection_score), "track": None,
                     "verified_identity": None, "identity_state": "identity_disabled",
                     "quality": {"state": face.state, "reason": face.quality_reason,
-                                "measurement_age_ms": face.score_age_ms},
+                                "measurement_age_ms": face.score_age_ms,
+                                "pixel_width": round(box[2] - box[0], 1),
+                                "pixel_height": round(box[3] - box[1], 1),
+                                "blur": "not_measured_by_combined_contract",
+                                "landmarks": "not_published_by_combined_contract"},
                     "uncertainty_reasons": ["IDENTITY_ASSOCIATION_DISABLED"],
                 })
             timings["face_ms"] = (self.clock() - branch_start) * 1000
@@ -66,6 +71,7 @@ class CombinedPipeline:
                     raise ValueError("object detector returned unsupported class")
                 detections.append({"kind": kind, "bbox_xyxy": _box(item["bbox_xyxy"], width, height),
                                    "detection_confidence": float(item["detection_confidence"]), "track": None,
+                                   "class_id": int(item.get("class_id", {"person": 0, "laptop": 63}[kind])),
                                    "verified_identity": None, "identity_state": "not_applicable",
                                    "quality": None, "uncertainty_reasons": []})
             timings["object_ms"] = (self.clock() - branch_start) * 1000

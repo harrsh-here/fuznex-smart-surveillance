@@ -29,6 +29,7 @@ ai/local_calibration.json
 ai/reports/
 ai/runtime/
 ai/benchmarks/
+diagnostics/
 ai/notebooks/.ipynb_checkpoints/
 *.db
 *.sqlite
