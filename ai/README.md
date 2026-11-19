@@ -26,3 +26,36 @@ are in [`../docs/portable-ai-migration.md`](../docs/portable-ai-migration.md).
 `combined.py` deliberately does not associate a face with a person or publish a
 face identity. `console.py` is optional and intended for local Windows testing;
 headless consumers should call `CombinedPipeline.process_frame` directly.
+
+## Private SFace enrollment (operator workstation only)
+
+The archived LBPH data is not compatible with SFace and is never read or
+converted. Start a new, explicitly consented gallery only from fresh samples;
+the commands below create an ignored local JSON file containing embeddings and
+model metadata, not source images. The participant IDs are intentionally fixed
+to `participant_1`, `participant_2`, and `participant_3`.
+
+```powershell
+python -m ai.enrollment --gallery local_data/sface/private-gallery.json --create --participant-id participant_1 --consent I_CONSENT --scrfd C:\models\det_500m.onnx --sface C:\models\face_recognition_sface_2021dec.onnx --camera 0 --samples 5
+```
+
+For headless operation, replace `--camera` with at least three repeated
+`--image` paths supplied by the consenting participant. Each sample must
+contain exactly one sufficiently large, sharp face; rejected frames and all
+source images stay out of the gallery. Updating an existing participant creates
+a timestamped sibling `.bak` backup. Delete only through an explicit command:
+
+```powershell
+python -m ai.enrollment --gallery local_data/sface/private-gallery.json --participant-id participant_1 --delete --confirm-delete participant_1
+```
+
+SPECTRA DIAG remains identity-disabled by default and its JSONL/CSV output
+never contains identity data. A local terminal-only check is available after
+enrollment; it prints a participant ID only for `known`, never for `unknown` or
+`uncertain`, and writes no export:
+
+```powershell
+python -m ai.console --local-diagnostic --scrfd C:\models\det_500m.onnx --sface C:\models\face_recognition_sface_2021dec.onnx --gallery local_data/sface/private-gallery.json --private-recognition-image C:\consented\check.jpg
+```
+
+Use the official [OpenCV Zoo SFace model](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface), whose model directory declares Apache-2.0, and compare its SHA-256 with `ai/model-manifest.json` before use. This does not replace the operator's consent, retention, security, or applicable biometric-law obligations.

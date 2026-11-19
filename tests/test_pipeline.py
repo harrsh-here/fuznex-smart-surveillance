@@ -44,5 +44,13 @@ class PipelineTests(unittest.TestCase):
     def test_non_known_nearest_template_does_not_leak_identity(self):
         state,identity,score=decide(np.array([0.,1.]),{"person-1":np.array([1.,0.])})
         self.assertEqual(state,"unknown"); self.assertIsNone(identity); self.assertIsNotNone(score)
+    def test_source_reset_discards_old_track_identity_state(self):
+        cfg=SFaceConfig(detector_model="d",recognizer_model="s",min_face_size_px=10)
+        pipe=SFacePipeline(cfg,Detector(),Recognizer(),{"participant_1":np.array([1.,0.])})
+        self.assertEqual(pipe.process_frame(np.zeros((100,100,3),dtype=np.uint8)).faces[0].track_id,1)
+        pipe.reset_tracking()
+        face=pipe.process_frame(np.zeros((100,100,3),dtype=np.uint8)).faces[0]
+        self.assertEqual(face.track_id,1)
+        self.assertEqual(face.score_age_ms,0)
 
 if __name__ == "__main__": unittest.main()

@@ -12,6 +12,10 @@ class SFacePipeline:
         self.config=config; self.detector=detector; self.recognizer=recognizer; self.templates=templates or {}; self.clock=clock; self.frame_no=0
         self.tracker=MultiFaceTracker(config.association_iou,config.track_ttl_updates,ambiguity_margin=config.association_ambiguity_margin)
     def set_templates(self, templates:dict[str,np.ndarray]) -> None: self.templates={k:np.asarray(v,dtype=np.float32) for k,v in templates.items()}
+    def reset_tracking(self) -> None:
+        """Discard volatile identity state after a source reconnect or explicit reset."""
+        self.tracker=MultiFaceTracker(self.config.association_iou,self.config.track_ttl_updates,ambiguity_margin=self.config.association_ambiguity_margin)
+        self.frame_no=0
     def process_frame(self, frame:np.ndarray) -> FrameResult:
         self.frame_no+=1; detections=self.detector.detect(frame); visible=self.tracker.update(detections,self.frame_no); now=self.clock()
         known:dict[str,Track]={}

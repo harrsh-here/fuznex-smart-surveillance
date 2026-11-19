@@ -5,7 +5,8 @@ from pathlib import Path
 import numpy as np
 
 from ai.combined import CombinedPipeline
-from ai.console import EmptyFacePipeline, load_local_gallery, make_face_pipeline
+from ai.console import EmptyFacePipeline, load_local_gallery, make_face_pipeline, private_face_status
+from ai.local_gallery import new_gallery, update_participant
 from ai.spectra_diag import DiagnosticExport, GroundTruth, decision, replay_frames
 
 class Faces:
@@ -21,10 +22,18 @@ class SpectraTests(unittest.TestCase):
     def test_gallery_is_validated_in_memory(self):
         with tempfile.TemporaryDirectory() as temp:
             gallery = Path(temp) / "gallery.json"
-            gallery.write_text(json.dumps({"templates":[{"identity_id":"opaque-test-id", "embedding":[3,4]}]}), encoding="utf-8")
+            payload = update_participant(new_gallery("a" * 64, 2), "participant_1", np.array([3,4]), 3, {})
+            gallery.write_text(json.dumps(payload), encoding="utf-8")
             loaded = load_local_gallery(gallery)
-            self.assertEqual(set(loaded), {"opaque-test-id"})
-            self.assertAlmostEqual(float(np.linalg.norm(loaded["opaque-test-id"])), 1.0)
+            self.assertEqual(set(loaded), {"participant_1"})
+            self.assertAlmostEqual(float(np.linalg.norm(loaded["participant_1"])), 1.0)
+    def test_private_status_hides_non_known_candidates(self):
+        known = type("Face", (), {"state":"known", "identity_id":"participant_1", "quality_reason":None})()
+        unknown = type("Face", (), {"state":"unknown", "identity_id":None, "quality_reason":None})()
+        pipeline = type("Pipeline", (), {"process_frame":lambda *_: type("Result", (), {"faces":(known, unknown)})()})()
+        rows = private_face_status(pipeline, object())
+        self.assertEqual(rows[0]["participant_id"], "participant_1")
+        self.assertNotIn("participant_id", rows[1])
     def test_unknown_truth_is_unevaluable(self):
         self.assertEqual(decision("laptop", True, None), "unevaluable")
         self.assertEqual(decision("laptop", True, GroundTruth(frozenset({"laptop"}))), "true_positive")
