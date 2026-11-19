@@ -68,12 +68,18 @@ def launch_camera(pipeline:CombinedPipeline,source:str="0",output_dir:str="diagn
     from tkinter import ttk
     root=tk.Tk(); root.title("FuzNex · SPECTRA DIAG"); root.geometry("1280x820"); root.minsize(1000,650); root.configure(bg="#101826")
     style=ttk.Style(root); style.theme_use("clam"); style.configure("TFrame",background="#101826"); style.configure("Card.TFrame",background="#182335"); style.configure("TLabel",background="#182335",foreground="#e6edf7",font=("Segoe UI",10)); style.configure("Title.TLabel",background="#101826",foreground="#f5f8ff",font=("Segoe UI Semibold",22)); style.configure("Sub.TLabel",background="#101826",foreground="#91a4c2",font=("Segoe UI",10)); style.configure("TButton",font=("Segoe UI Semibold",10),padding=(12,7))
-    visible={"face","person","laptop"}; messages:queue.Queue=queue.Queue(maxsize=2); stop=threading.Event(); worker:CameraWorker|None=None; source_var=tk.StringVar(value=source); status=tk.StringVar(value="Ready · identity publication and face-to-person association are disabled"); perf=tk.StringVar(value="Awaiting source"); counts={k:tk.StringVar(value="0") for k in visible}
+    visible={"face","person","laptop"}; messages:queue.Queue=queue.Queue(maxsize=2); stop=threading.Event(); worker:CameraWorker|None=None; source_var=tk.StringVar(value=source); image_var=tk.StringVar(); status=tk.StringVar(value="Ready · identity publication and face-to-person association are disabled"); perf=tk.StringVar(value="Awaiting source"); counts={k:tk.StringVar(value="0") for k in visible}
     top=ttk.Frame(root); top.pack(fill="x",padx=26,pady=(22,8)); ttk.Label(top,text="SPECTRA DIAG",style="Title.TLabel").pack(anchor="w"); ttk.Label(top,text="Capture → inference → render diagnostics · local-only · no candidate names",style="Sub.TLabel").pack(anchor="w")
     controls=ttk.Frame(root,style="Card.TFrame"); controls.pack(fill="x",padx=26,pady=10); ttk.Label(controls,text="Camera / IP stream").pack(side="left",padx=(16,6),pady=14); ttk.Entry(controls,textvariable=source_var,width=44).pack(side="left",pady=14)
     def toggle(k:str,v:tk.BooleanVar)->None: visible.add(k) if v.get() else visible.discard(k)
     for k in ("face","person","laptop"):
         v=tk.BooleanVar(value=True); ttk.Checkbutton(controls,text=k.title(),variable=v,command=lambda k=k,v=v:toggle(k,v)).pack(side="left",padx=8)
+    image_controls=ttk.Frame(root,style="Card.TFrame"); image_controls.pack(fill="x",padx=26,pady=(0,10)); ttk.Label(image_controls,text="Laptop test image").pack(side="left",padx=(16,6),pady=10); ttk.Entry(image_controls,textvariable=image_var,width=63).pack(side="left",pady=10)
+    def browse_image()->None:
+        from tkinter import filedialog
+        chosen=filedialog.askopenfilename(title="Select a laptop-positive test image",filetypes=[("Images","*.jpg *.jpeg *.png *.bmp"), ("All files","*.*")])
+        if chosen:image_var.set(chosen)
+    ttk.Button(image_controls,text="Browse…",command=browse_image).pack(side="left",padx=8)
     body=ttk.Frame(root); body.pack(fill="both",expand=True,padx=26,pady=10); preview=ttk.Label(body,text="Start a camera or IP stream to inspect the live render",anchor="center"); preview.pack(side="left",fill="both",expand=True); side=ttk.Frame(body,style="Card.TFrame",width=260); side.pack(side="right",fill="y",padx=(14,0)); side.pack_propagate(False)
     ttk.Label(side,text="LIVE COUNTS",font=("Segoe UI Semibold",11)).pack(anchor="w",padx=18,pady=(20,8))
     for k in ("face","person","laptop"): ttk.Label(side,textvariable=counts[k],font=("Segoe UI Semibold",25)).pack(anchor="w",padx=18); ttk.Label(side,text=k.title()).pack(anchor="w",padx=20,pady=(0,8))
@@ -84,7 +90,12 @@ def launch_camera(pipeline:CombinedPipeline,source:str="0",output_dir:str="diagn
         if worker and worker.is_alive():return
         stop.clear(); export=DiagnosticExport(output_dir,{"object":getattr(pipeline.object_detector,"provenance",lambda:{"status":"not_available"})(),"privacy":{"identity_publication":"disabled","face_person_association":"disabled"}}); worker=CameraWorker(pipeline,source_var.get().strip(),messages,stop,export); worker.start(); status.set(f"Running · trace: {export.directory}")
     def halt()->None:stop.set(); status.set("Stopping capture…")
-    ttk.Button(bottom,text="Start diagnostic",command=start).pack(side="right",padx=5); ttk.Button(bottom,text="Stop",command=halt).pack(side="right",padx=5)
+    def test_image()->None:
+        path=image_var.get().strip(); image=cv2.imread(path)
+        if image is None: status.set("Choose a readable test image first"); return
+        acquired=time.perf_counter(); result=pipeline.process_frame(image,f"image:{Path(path).name}",uuid.uuid4().hex,0,acquired_at=acquired); metrics=RunMetrics(frames=1,inference_ms=[result["processing"]["total_ms"]],end_to_end_ms=[result["processing"]["capture_to_output_ms"]],errors=len(result["processing_errors"]))
+        export=DiagnosticExport(output_dir,{"object":getattr(pipeline.object_detector,"provenance",lambda:{"status":"not_available"})(),"mode":"ui-image-test","privacy":{"identity_publication":"disabled","face_person_association":"disabled"}}); export.record(result,metrics,event="ui_image_test"); export.close(); messages.put({"frame":image,"result":result,"metrics":metrics.snapshot()}); status.set(f"Image test complete · trace: {export.directory}")
+    ttk.Button(bottom,text="Test image",command=test_image).pack(side="right",padx=5); ttk.Button(bottom,text="Start diagnostic",command=start).pack(side="right",padx=5); ttk.Button(bottom,text="Stop",command=halt).pack(side="right",padx=5)
     def poll()->None:
         try:
             while True:

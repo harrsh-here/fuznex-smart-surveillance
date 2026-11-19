@@ -38,4 +38,6 @@ python -m ai.console --yolo C:\models\yolo11n.pt --camera 0
 The viewer independently toggles face/person/laptop overlays, exposes capture
 to output timing, dropped frames, errors and reconnects, and retries a lost
 source. It does not expose identity candidates or associate faces to people.
+Use **Browse…** then **Test image** in that same viewer to verify the visible
+render path with a known laptop-positive image before attempting a live retest.
 
