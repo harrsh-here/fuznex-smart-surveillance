@@ -19,7 +19,9 @@ import numpy as np
 
 SCHEMA_VERSION = 1
 MODEL_ID = "sface-2021dec"
-PARTICIPANT_IDS = frozenset({"participant_1", "participant_2", "participant_3"})
+# IDs are generated locally by the diagnostic console.  This deliberately has
+# no fixed population cap; legacy participant_1 style IDs remain valid.
+PARTICIPANT_IDS: frozenset[str] = frozenset()
 
 
 def sha256_file(path: Path) -> str:
@@ -73,7 +75,7 @@ def parse_gallery(path: Path, expected_model_sha256: str | None = None) -> dict[
         if not isinstance(entry, dict):
             raise ValueError("private gallery contains an invalid participant record")
         participant_id = entry.get("participant_id")
-        if participant_id not in PARTICIPANT_IDS or participant_id in seen:
+        if not isinstance(participant_id, str) or not participant_id.strip() or participant_id in seen:
             raise ValueError("private gallery contains an invalid or duplicate participant ID")
         embedding = _normalise_embedding(entry.get("embedding"))
         if embedding.size != dimension:
@@ -82,7 +84,10 @@ def parse_gallery(path: Path, expected_model_sha256: str | None = None) -> dict[
         if not isinstance(sample_count, int) or sample_count < 3:
             raise ValueError("private gallery sample count is invalid")
         seen.add(participant_id)
-        checked.append({"participant_id": participant_id, "embedding": embedding.tolist(),
+        display_name = entry.get("display_name", participant_id)
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise ValueError("private gallery has an invalid display name")
+        checked.append({"participant_id": participant_id, "display_name": display_name.strip(), "embedding": embedding.tolist(),
                         "sample_count": sample_count, "enrolled_at": entry.get("enrolled_at"),
                         "quality": entry.get("quality", {})})
     return {"schema_version": SCHEMA_VERSION, "model": dict(model), "participants": checked}
@@ -96,13 +101,15 @@ def templates_from_gallery(path: Path, expected_model_sha256: str | None = None)
 
 
 def update_participant(gallery: dict[str, Any], participant_id: str, embedding: np.ndarray,
-                       sample_count: int, quality: dict[str, Any]) -> dict[str, Any]:
-    if participant_id not in PARTICIPANT_IDS:
-        raise ValueError("participant ID must be participant_1, participant_2, or participant_3")
+                       sample_count: int, quality: dict[str, Any], display_name: str | None = None) -> dict[str, Any]:
+    if not isinstance(participant_id, str) or not participant_id.strip():
+        raise ValueError("participant ID must be a non-empty local ID")
+    if display_name is not None and (not isinstance(display_name, str) or not display_name.strip()):
+        raise ValueError("display name must be non-empty")
     vector = _normalise_embedding(embedding)
     if vector.size != gallery["model"]["embedding_dimension"]:
         raise ValueError("embedding dimension does not match this private gallery")
-    replacement = {"participant_id": participant_id, "embedding": vector.tolist(),
+    replacement = {"participant_id": participant_id, "display_name": (display_name or participant_id).strip(), "embedding": vector.tolist(),
                    "sample_count": sample_count,
                    "enrolled_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
                    "quality": quality}
@@ -112,8 +119,8 @@ def update_participant(gallery: dict[str, Any], participant_id: str, embedding: 
 
 
 def delete_participant(gallery: dict[str, Any], participant_id: str) -> dict[str, Any]:
-    if participant_id not in PARTICIPANT_IDS:
-        raise ValueError("participant ID must be participant_1, participant_2, or participant_3")
+    if not isinstance(participant_id, str) or not participant_id.strip():
+        raise ValueError("participant ID must be a non-empty local ID")
     gallery["participants"] = [entry for entry in gallery["participants"] if entry["participant_id"] != participant_id]
     return gallery
 

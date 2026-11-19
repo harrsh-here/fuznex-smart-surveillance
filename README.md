@@ -28,6 +28,18 @@ python -m unittest discover -s tests -v
 python scripts/demo_mock.py
 ```
 
+## Windows diagnostic console
+
+Launch `Launch-Private-SFace-Tester.cmd` (the existing desktop shortcut uses
+this entry point). It opens the single **SPECTRA AI Diagnostic Console** rather
+than a terminal menu. Select and verify local model files once in Diagnostics,
+then use Live test, guided consented enrollment, People, and Logs & sessions in
+the same window. Local model paths, gallery data, biometric templates and
+exports remain under ignored `local_data/` or `diagnostics/` directories.
+
+The old `ai.console` and `ai.enrollment` commands remain available for
+headless/Kaggle and recovery workflows.
+
 ## Migration note
 
 The prior local prototype was preserved in place. Its small LBPH enrollment,

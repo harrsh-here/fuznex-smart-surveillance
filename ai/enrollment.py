@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from ai.detection import SCRFD500MDetector
-from ai.local_gallery import (PARTICIPANT_IDS, delete_participant, new_gallery,
+from ai.local_gallery import (delete_participant, new_gallery,
                               parse_gallery, sha256_file, update_participant,
                               write_gallery_safely)
 from ai.recognition import SFaceRecognizer, enrolled_embedding
@@ -83,7 +83,7 @@ def main() -> int:
     parser.add_argument("--gallery", type=Path, required=True, help="ignored local JSON gallery path")
     parser.add_argument("--sface", type=Path)
     parser.add_argument("--scrfd", type=Path)
-    parser.add_argument("--participant-id", choices=sorted(PARTICIPANT_IDS), required=True)
+    parser.add_argument("--participant-id", required=True, help="local generated ID (any non-empty value)")
     parser.add_argument("--consent", help=f"must be exactly {CONSENT_PHRASE}")
     parser.add_argument("--image", type=Path, action="append", default=[], help="fresh consenting sample; repeat at least 3 times")
     parser.add_argument("--camera", help="camera/IP source for interactive, in-memory capture")
