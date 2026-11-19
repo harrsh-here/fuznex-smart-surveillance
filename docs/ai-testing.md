@@ -38,6 +38,12 @@ python -m ai.console --yolo C:\models\yolo11n.pt --camera 0
 The viewer independently toggles face/person/laptop overlays, exposes capture
 to output timing, dropped frames, errors and reconnects, and retries a lost
 source. It does not expose identity candidates or associate faces to people.
+
+Timing exports now include capture, face branch, object branch, inference,
+end-to-end, and serialization averages. An offline one-image result is not a
+live-FPS claim: record cold and warmed runs separately at the same resolution.
+`detection_trace.raw_emitted_counts` ties a duplicate-box report to a frame;
+it is evidence, not proof that the detector is the cause.
 Use **Browse…** then **Test image** in that same viewer to verify the visible
 render path with a known laptop-positive image before attempting a live retest.
 

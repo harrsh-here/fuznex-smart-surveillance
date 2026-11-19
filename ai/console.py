@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from ai.combined import CombinedPipeline
+from ai.config import SFaceConfig
+from ai.detection import SCRFD500MDetector
 from ai.object_detection import YoloConfig, YoloPersonLaptopDetector
+from ai.pipeline import SFacePipeline
+from ai.recognition import SFaceRecognizer
 from ai.spectra_diag import DiagnosticExport, RunMetrics, replay_frames
 
 
@@ -21,6 +25,39 @@ class EmptyFacePipeline:
     """Object diagnosis does not load or expose identity functionality."""
     def process_frame(self, _frame: Any) -> Any:
         return type("FaceFrame", (), {"faces": ()})()
+
+
+def load_local_gallery(path: Path) -> dict[str, Any]:
+    """Read a caller-supplied SFace gallery into memory only; never export it."""
+    import json
+    import numpy as np
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    entries = payload.get("templates", []) if isinstance(payload, dict) else payload
+    gallery: dict[str, Any] = {}
+    for entry in entries:
+        identity, embedding = entry.get("identity_id"), entry.get("embedding")
+        if not isinstance(identity, str) or not identity or embedding is None:
+            raise ValueError("gallery entries require non-empty identity_id and embedding")
+        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        if vector.size == 0 or not np.isfinite(vector).all() or not float(np.linalg.norm(vector)):
+            raise ValueError("gallery contains an invalid embedding")
+        if identity in gallery:
+            raise ValueError("gallery contains duplicate identity_id")
+        gallery[identity] = vector / np.linalg.norm(vector)
+    return gallery
+
+
+def make_face_pipeline(args: argparse.Namespace) -> Any:
+    """Identity is disabled unless the caller explicitly enables local diagnosis."""
+    if not args.local_diagnostic:
+        return EmptyFacePipeline()
+    if not (args.scrfd and args.sface and args.gallery):
+        raise ValueError("--local-diagnostic requires --scrfd, --sface, and --gallery")
+    config = SFaceConfig(detector_model=args.scrfd, recognizer_model=args.sface,
+                         detector_input_size=(args.face_input_size, args.face_input_size))
+    return SFacePipeline(config, SCRFD500MDetector(config.detector_model, config.detector_threshold,
+                                                     config.detector_input_size),
+                         SFaceRecognizer(config.recognizer_model), load_local_gallery(args.gallery))
 
 
 def annotate(frame: Any, result: dict[str, Any], visible: set[str]) -> Any:
@@ -55,7 +92,7 @@ class CameraWorker(threading.Thread):
             if not ok:
                 self.metrics.dropped_frames+=1; cap.release(); cap=None; self.offer({"status":"Frame lost; reconnecting…"}); continue
             result=self.pipeline.process_frame(frame,f"source:{self.source}",epoch,seq,acquired_at=acquired); seq+=1
-            self.metrics.frames+=1; self.metrics.inference_ms.append(result["processing"]["total_ms"]); self.metrics.end_to_end_ms.append(result["processing"]["capture_to_output_ms"]); self.metrics.errors+=len(result["processing_errors"]); self.export.record(result,self.metrics)
+            self.metrics.frames+=1; self.metrics.inference_ms.append(result["processing"]["total_ms"]); self.metrics.end_to_end_ms.append(result["processing"]["capture_to_output_ms"]); self.metrics.face_ms.append(result["processing"].get("face_ms",0.0)); self.metrics.object_ms.append(result["processing"].get("object_ms",0.0)); self.metrics.errors+=len(result["processing_errors"]); self.export.record(result,self.metrics)
             self.offer({"frame":frame,"result":result,"metrics":self.metrics.snapshot()})
         if cap is not None:cap.release()
         self.export.close()
@@ -111,8 +148,13 @@ def launch_camera(pipeline:CombinedPipeline,source:str="0",output_dir:str="diagn
 
 
 def main()->int:
-    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument("--yolo",required=True,type=Path); parser.add_argument("--camera",default="0"); parser.add_argument("--image",type=Path); parser.add_argument("--input-size",type=int,default=640); parser.add_argument("--confidence",type=float,default=.25); parser.add_argument("--output-dir",default="diagnostics"); args=parser.parse_args()
-    detector=YoloPersonLaptopDetector(YoloConfig(args.yolo,args.input_size,args.confidence)); pipeline=CombinedPipeline(EmptyFacePipeline(),detector)
+    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument("--yolo",required=True,type=Path); parser.add_argument("--camera",default="0"); parser.add_argument("--image",type=Path); parser.add_argument("--input-size",type=int,default=640); parser.add_argument("--confidence",type=float,default=.25); parser.add_argument("--output-dir",default="diagnostics")
+    parser.add_argument("--local-diagnostic",action="store_true",help="enable local-only SCRFD/SFace status diagnosis; off by default")
+    parser.add_argument("--scrfd",type=Path); parser.add_argument("--sface",type=Path); parser.add_argument("--gallery",type=Path)
+    parser.add_argument("--face-input-size",type=int,choices=(320,640),default=640); args=parser.parse_args()
+    try: face_pipeline=make_face_pipeline(args)
+    except ValueError as exc: parser.error(str(exc))
+    detector=YoloPersonLaptopDetector(YoloConfig(args.yolo,args.input_size,args.confidence)); pipeline=CombinedPipeline(face_pipeline,detector)
     if args.image:
         import cv2
         image=cv2.imread(str(args.image))

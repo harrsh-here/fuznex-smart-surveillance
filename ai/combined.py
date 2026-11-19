@@ -81,10 +81,12 @@ class CombinedPipeline:
         for index, detection in enumerate(detections):
             detection["detection_id"] = f"d{index}"
         finished = self.clock()
+        # Counts allow a duplicate-box report to be tied to a specific frame.
+        counts = {kind: sum(item["kind"] == kind for item in detections) for kind in ("face", "person", "laptop")}
         return {"schema_version": SCHEMA_VERSION, "camera_id": camera_id, "stream_epoch": stream_epoch,
                 "frame_seq": frame_seq, "captured_at": captured_at or utc_now(),
                 "timestamp_source": "capture_host", "frame_size": {"width": width, "height": height},
                 "models": {"face": "scrfd-500m+sface", "object": "yolo11n"}, "detections": detections,
-                "events": [], "processing_errors": errors,
+                "events": [], "processing_errors": errors, "detection_trace": {"raw_emitted_counts": counts},
                 "processing": {**timings, "total_ms": (finished - start) * 1000,
                                "capture_to_output_ms": (finished - (acquired_at or start)) * 1000}}

@@ -60,6 +60,9 @@ class RunMetrics:
     capture_ms: list[float] = field(default_factory=list)
     inference_ms: list[float] = field(default_factory=list)
     end_to_end_ms: list[float] = field(default_factory=list)
+    face_ms: list[float] = field(default_factory=list)
+    object_ms: list[float] = field(default_factory=list)
+    serialization_ms: list[float] = field(default_factory=list)
 
     def snapshot(self) -> dict[str, Any]:
         def avg(values: list[float]) -> float | None: return round(sum(values) / len(values), 2) if values else None
@@ -67,6 +70,7 @@ class RunMetrics:
         return {"frames": self.frames, "dropped_frames": self.dropped_frames, "errors": self.errors,
                 "reconnects": self.reconnects, "capture_ms_avg": avg(self.capture_ms),
                 "inference_ms_avg": avg(self.inference_ms), "end_to_end_ms_avg": latency,
+                "face_ms_avg": avg(self.face_ms), "object_ms_avg": avg(self.object_ms), "serialization_ms_avg": avg(self.serialization_ms),
                 "fps": round(1000 / latency, 2) if latency and latency > 0 else None,
                 "platform": platform.platform()}
 
@@ -84,7 +88,8 @@ class DiagnosticExport:
         self.csv.writeheader(); self.csv_file.flush()
         (self.directory / "provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True), encoding="utf-8")
 
-    def record(self, result: dict[str, Any], metrics: RunMetrics, truth: GroundTruth | None = None, event: str = "frame") -> None:
+    def record(self, result: dict[str, Any], metrics: RunMetrics, truth: GroundTruth | None = None, event: str = "frame") -> float:
+        started = time.perf_counter()
         seen = {d["kind"] for d in result.get("detections", [])}
         item = {"event": event, "at": utc_now(), "result": result, "metrics": metrics.snapshot(),
                 "ground_truth": None if truth is None else {"present": sorted(truth.present), "distance_band": truth.distance_band,
@@ -98,6 +103,9 @@ class DiagnosticExport:
                     "decision": decision(kind, kind in seen, truth), "distance_band": truth.distance_band if truth else None,
                     "participant": truth.participant if truth and truth.consented else None})
         self.csv_file.flush()
+        elapsed = (time.perf_counter() - started) * 1000
+        metrics.serialization_ms.append(elapsed)
+        return elapsed
 
     def close(self) -> None:
         self.events.close(); self.csv_file.close()
@@ -111,6 +119,7 @@ def replay_frames(pipeline: Any, frames: Iterable[Any], camera_id: str, truth: G
         acquired = time.perf_counter()
         result = pipeline.process_frame(frame, camera_id, epoch, seq, acquired_at=acquired)
         metrics.frames += 1; metrics.inference_ms.append(result["processing"]["total_ms"])
+        metrics.face_ms.append(result["processing"].get("face_ms", 0.0)); metrics.object_ms.append(result["processing"].get("object_ms", 0.0))
         metrics.end_to_end_ms.append(result["processing"]["capture_to_output_ms"])
         metrics.errors += len(result["processing_errors"]); results.append(result)
         if exporter: exporter.record(result, metrics, truth)
