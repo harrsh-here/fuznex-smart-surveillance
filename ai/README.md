@@ -1,7 +1,7 @@
 # AI integration module
 
-`ai/` exposes a reusable, local SCRFD-500M-KPS + SFace frame pipeline. It has no
-camera capture, database, alerts, UI, cloud, or persistence dependency.
+`ai/` exposes reusable local face, person/laptop, and identity-disabled combined
+frame pipelines. It has no database, alerts, cloud, or persistence dependency.
 
 ```python
 from ai.config import SFaceConfig
@@ -19,3 +19,10 @@ payload = result.to_dict()
 `match_score` is cosine similarity, not a confidence percentage. The default
 SFace reference threshold is experimental and is not a FuzNex accuracy claim.
 See `../docs/ai-architecture.md` and `model-manifest.json` before integration.
+
+Portable integration, Windows/Kaggle setup, safety limits, and benchmark guidance
+are in [`../docs/portable-ai-migration.md`](../docs/portable-ai-migration.md).
+`object_detection.py` accepts only a supplied local, verified YOLO COCO model.
+`combined.py` deliberately does not associate a face with a person or publish a
+face identity. `console.py` is optional and intended for local Windows testing;
+headless consumers should call `CombinedPipeline.process_frame` directly.

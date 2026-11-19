@@ -27,6 +27,9 @@ cctv_alerts/
 ai/local_enrollments.json
 ai/local_calibration.json
 ai/reports/
+ai/runtime/
+ai/benchmarks/
+ai/notebooks/.ipynb_checkpoints/
 *.db
 *.sqlite
 *.sqlite3
