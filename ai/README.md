@@ -1,6 +1,6 @@
 # AI integration module
 
-`ai/` exposes reusable local face, person/laptop, and identity-disabled combined
+`ai/` exposes reusable local face, person/laptop/phone, and identity-disabled combined
 frame pipelines. It has no database, alerts, cloud, or persistence dependency.
 
 ```python
@@ -32,8 +32,8 @@ headless consumers should call `CombinedPipeline.process_frame` directly.
 The archived LBPH data is not compatible with SFace and is never read or
 converted. Start a new, explicitly consented gallery only from fresh samples;
 the commands below create an ignored local JSON file containing embeddings and
-model metadata, not source images. The participant IDs are intentionally fixed
-to `participant_1`, `participant_2`, and `participant_3`.
+model metadata, not source images. There is no participant-number cap; generated
+local IDs and display names stay in the ignored private gallery.
 
 ```powershell
 python -m ai.enrollment --gallery local_data/sface/private-gallery.json --create --participant-id participant_1 --consent I_CONSENT --scrfd C:\models\det_500m.onnx --sface C:\models\face_recognition_sface_2021dec.onnx --camera 0 --samples 5
@@ -59,3 +59,24 @@ python -m ai.console --local-diagnostic --scrfd C:\models\det_500m.onnx --sface 
 ```
 
 Use the official [OpenCV Zoo SFace model](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface), whose model directory declares Apache-2.0, and compare its SHA-256 with `ai/model-manifest.json` before use. This does not replace the operator's consent, retention, security, or applicable biometric-law obligations.
+
+## SPECTRA pipeline sessions
+
+`python -m ai.spectra_console` starts the local Windows console. Its Integrated
+Pipeline is the locked default: it requires the discovered YOLO and SCRFD
+models, creates a unique session on every test, and blocks instead of silently
+substituting a missing core layer. Private SFace recognition is available only
+after local opt-in and a valid consented gallery.
+
+The same planner and production components are available headlessly for local
+images (a remote Codex session is not assumed to have a camera):
+
+```powershell
+python -m ai.spectra_runner --mode integrated --image C:\test\frame.jpg
+python -m ai.spectra_runner --mode layer --layers yolo,scrfd --image C:\test\frame.jpg
+```
+
+Every session is stored under the ignored `diagnostics/spectra-*` directory:
+`events.jsonl`, `detections.csv`, `provenance.json`, and
+`session-summary.json`. Ordinary exports exclude images, embeddings, gallery
+contents, display names, identity candidates, and face-to-person associations.

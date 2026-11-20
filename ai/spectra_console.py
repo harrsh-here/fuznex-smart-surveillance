@@ -15,19 +15,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ai.combined import CombinedPipeline
 from ai.console import EmptyFacePipeline, annotate
 from ai.config import SFaceConfig
 from ai.detection import SCRFD500MDetector
 from ai.enrollment import quality_embedding
-from ai.local_gallery import (delete_participant, new_gallery, parse_gallery,
+from ai.local_gallery import (delete_participant, matching_participant_id, new_gallery, parse_gallery,
                               sha256_file, templates_from_gallery,
                               update_participant, write_gallery_safely)
-from ai.object_detection import YoloConfig, YoloPersonLaptopDetector
-from ai.pipeline import SFacePipeline
 from ai.recognition import SFaceRecognizer, enrolled_embedding
 from ai.runtime_discovery import discover_cameras, discover_models
-from ai.spectra_diag import DiagnosticExport, GroundTruth, RunMetrics
+from ai.spectra_diag import DiagnosticExport, GroundTruth, RunMetrics, list_sessions
+from ai.spectra_runtime import ExecutionPlan, build_pipeline, gallery_is_ready, make_plan
 
 APP_DIR = Path(__file__).resolve().parent.parent
 LOCAL_DIR = APP_DIR / "local_data" / "spectra"
@@ -65,11 +63,13 @@ class FrameMessage:
 
 class CaptureWorker(threading.Thread):
     """Bounded capture/inference loop that never blocks the Tk event thread."""
-    def __init__(self, pipeline: CombinedPipeline, source: str, inbox: queue.Queue[FrameMessage],
-                 stop: threading.Event, exporter: DiagnosticExport | None, truth: GroundTruth | None) -> None:
+    def __init__(self, pipeline: Any, source: str, inbox: queue.Queue[FrameMessage],
+                 stop: threading.Event, exporter: DiagnosticExport, truth: GroundTruth | None,
+                 plan: ExecutionPlan) -> None:
         super().__init__(daemon=True)
         self.pipeline, self.source, self.inbox, self.stop = pipeline, source, inbox, stop
-        self.exporter, self.truth, self.metrics = exporter, truth, RunMetrics()
+        self.exporter, self.truth, self.plan, self.metrics = exporter, truth, plan, RunMetrics()
+        self.last_person_count: int | None = None
 
     def _offer(self, message: FrameMessage) -> None:
         try:
@@ -104,13 +104,18 @@ class CaptureWorker(threading.Thread):
                 self.metrics.inference_ms.append(processing["total_ms"]); self.metrics.end_to_end_ms.append(processing["capture_to_output_ms"])
                 self.metrics.face_ms.append(processing.get("face_ms", 0)); self.metrics.object_ms.append(processing.get("object_ms", 0))
                 self.metrics.errors += len(result["processing_errors"])
+                person_count = sum(item.get("kind") == "person" for item in result["detections"])
+                if person_count != self.last_person_count:
+                    self.exporter.record_event("person_detection", {"captured_at": result["captured_at"], "count": person_count, "present": bool(person_count)})
+                    self.last_person_count = person_count
                 if result["processing_errors"]:
                     self._offer(FrameMessage(status="error|One detection branch could not process this frame. Live test continues."))
-                if self.exporter: self.exporter.record(result, self.metrics, self.truth)
+                self.exporter.record(result, self.metrics, self.truth)
                 self._offer(FrameMessage(frame=frame, result=result, metrics=self.metrics.snapshot()))
         finally:
             if cap is not None: cap.release()
-            if self.exporter: self.exporter.close()
+            self.exporter.finalize("completed" if self.stop.is_set() else "ended", {"mode": self.plan.mode, "layers": self.plan.active_layers})
+            self.exporter.close()
 
 
 class SpectraConsole:
@@ -122,10 +127,11 @@ class SpectraConsole:
         import tkinter as tk
         self.tk = tk; self.root = root; self.config = _load_config()
         self.inbox: queue.Queue[FrameMessage] = queue.Queue(maxsize=2); self.runtime_inbox: queue.Queue[tuple[dict[str, Any], dict[str, str], list[str], str | None]] = queue.Queue(maxsize=1); self.stop = threading.Event(); self.worker: CaptureWorker | None = None
-        self.pipeline: CombinedPipeline | None = None; self.last_metrics: dict[str, Any] = {}; self.last_frame: Any = None; self.exporter: DiagnosticExport | None = None
+        self.pipeline: Any | None = None; self.last_metrics: dict[str, Any] = {}; self.last_frame: Any = None; self.exporter: DiagnosticExport | None = None; self.active_plan: ExecutionPlan | None = None
         self.enrolling = False; self.samples: list[Any] = []; self.blurs: list[float] = []; self.events: list[tuple[str, str, str]] = []; self.model_availability: dict[str, str] = {}; self.camera_candidates: list[str] = []; self.active_camera: str | None = None; self.last_detection_signature: tuple[tuple[str, int], ...] | None = None
         self.show_faces = True; self.show_persons = True; self.show_laptops = True; self.show_phones = True; self.recognition_enabled = False
-        self._style(); self._build_shell(); self.show_page("live"); self._refresh_people(); self._event("info", "Console ready", "Start a camera test or open setup if this is your first use.")
+        self.distance = tk.StringVar(value="Not specified"); self.truth_flags = {kind: tk.BooleanVar(value=False) for kind in ("face", "person", "laptop", "phone")}
+        self._style(); self._build_shell(); self.show_page("integrated"); self._refresh_people(); self._event("info", "Console ready", "Start an integrated test or open Layer testing.")
         self._discover_runtime(); self.root.after(30, self._poll); self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _style(self) -> None:
@@ -154,7 +160,7 @@ class SpectraConsole:
         self._label(brand, "SPECTRA", size=21, bold=True, bg=self.SIDE).pack(anchor="w")
         self._label(brand, "AI diagnostic console", size=9, color=self.MUTED, bg=self.SIDE).pack(anchor="w", pady=(2, 0))
         self.nav: dict[str, Any] = {}
-        for key, label, glyph in (("live", "Live test", "●"), ("people", "People", "●"), ("diagnostics", "Diagnostics", "●"), ("export", "Export results", "●")):
+        for key, label, glyph in (("integrated", "Integrated pipeline", "●"), ("layers", "Layer testing", "●"), ("people", "People / enrollment", "●"), ("diagnostics", "Sessions & diagnostics", "●")):
             item = tk.Button(self.sidebar, text=f"{glyph}   {label}", anchor="w", command=lambda k=key: self.show_page(k),
                              bg=self.SIDE, fg=self.MUTED, activebackground=self.SURFACE_2, activeforeground=self.TEXT,
                              relief="flat", bd=0, padx=21, pady=12, font=("Segoe UI Semibold", 10), takefocus=True)
@@ -169,7 +175,7 @@ class SpectraConsole:
         self.page_subtitle = self._label(title_box, bg=self.BG, size=10, color=self.MUTED); self.page_subtitle.pack(anchor="w")
         self.ready_badge = self._label(top, "", size=9, bold=True, bg=self.BG); self.ready_badge.pack(side="right", pady=21)
         self.content = tk.Frame(main, bg=self.BG); self.content.pack(fill="both", expand=True, padx=32, pady=(10, 28))
-        self.pages = {"live": self._build_live(), "people": self._build_people(), "diagnostics": self._build_diagnostics(), "export": self._build_export()}
+        self.pages = {"integrated": self._build_live(), "layers": self._build_layers(), "people": self._build_people(), "diagnostics": self._build_diagnostics()}
 
     def _page(self) -> Any:
         page = self.tk.Frame(self.content, bg=self.BG); page.place(relwidth=1, relheight=1); return page
@@ -198,6 +204,53 @@ class SpectraConsole:
         self.count_text = self._label(counts, "0 faces\n0 people\n0 laptops\n0 phones", size=14, bold=True, justify="left", anchor="w"); self.count_text.pack(anchor="w", padx=18, pady=(0, 18))
         activity = self._card(parent); activity.pack(fill="both", expand=True); self._label(activity, "RECENT ACTIVITY", size=9, bold=True, color=self.MUTED).pack(anchor="w", padx=18, pady=(17, 8))
         self.activity_text = self._label(activity, "No events yet.", size=9, color=self.MUTED, justify="left", anchor="nw", wraplength=238); self.activity_text.pack(fill="both", padx=18, pady=(0, 16))
+
+    def _build_layers(self) -> Any:
+        """Interactive isolated/custom controls. They change execution, never just overlays."""
+        tk = self.tk; page = self._page(); card = self._card(page); card.pack(fill="x")
+        self._label(card, "Layer testing", size=16, bold=True).pack(anchor="w", padx=22, pady=(20, 3))
+        self._label(card, "Run one real layer or a custom combination. Disabled layers do not load or infer.", size=10, color=self.MUTED, wraplength=860, justify="left").pack(anchor="w", padx=22, pady=(0, 16))
+        self.layer_style = tk.StringVar(value="isolated"); choices = tk.Frame(card, bg=self.SURFACE); choices.pack(fill="x", padx=22)
+        for value, label in (("isolated", "Isolated layer"), ("custom", "Custom combination")):
+            tk.Radiobutton(choices, text=label, value=value, variable=self.layer_style, command=self._update_layer_controls,
+                           bg=self.SURFACE, fg=self.TEXT, selectcolor="#08101c", activebackground=self.SURFACE,
+                           activeforeground=self.TEXT).pack(side="left", padx=(0, 18))
+        self.isolated_layer = tk.StringVar(value="yolo")
+        isolated = tk.Frame(card, bg=self.SURFACE); isolated.pack(fill="x", padx=22, pady=(12, 4))
+        self._label(isolated, "Run only", size=9, bold=True, color=self.MUTED).pack(side="left", padx=(0, 12))
+        for value, label in (("yolo", "YOLO objects"), ("scrfd", "SCRFD faces"), ("sface", "SFace + SCRFD")):
+            tk.Radiobutton(isolated, text=label, value=value, variable=self.isolated_layer, bg=self.SURFACE, fg=self.TEXT,
+                           selectcolor="#08101c", activebackground=self.SURFACE, activeforeground=self.TEXT).pack(side="left", padx=(0, 14))
+        custom = tk.Frame(card, bg=self.SURFACE); custom.pack(fill="x", padx=22, pady=(4, 8)); self._label(custom, "Custom", size=9, bold=True, color=self.MUTED).pack(side="left", padx=(0, 12))
+        self.layer_flags = {name: tk.BooleanVar(value=name in {"yolo", "scrfd"}) for name in ("yolo", "scrfd", "sface")}
+        for name, label in (("yolo", "YOLO objects"), ("scrfd", "SCRFD faces"), ("sface", "Private SFace recognition")):
+            tk.Checkbutton(custom, text=label, variable=self.layer_flags[name], bg=self.SURFACE, fg=self.TEXT,
+                           selectcolor="#08101c", activebackground=self.SURFACE, activeforeground=self.TEXT).pack(side="left", padx=(0, 14))
+        self.layer_status = self._label(card, "Choose a mode. Dependencies are checked before models load.", size=10, color=self.MUTED, wraplength=860, justify="left"); self.layer_status.pack(anchor="w", padx=22, pady=(6, 12))
+        controls = tk.Frame(card, bg=self.SURFACE); controls.pack(fill="x", padx=22, pady=(0, 22))
+        self._button(controls, "Start layer test", self.start_layer_test, primary=True).pack(side="left")
+        self._button(controls, "Check dependencies", self._update_layer_controls).pack(side="left", padx=8)
+        graph = self._card(page); graph.pack(fill="both", expand=True, pady=14)
+        self._label(graph, "Dependencies", size=12, bold=True).pack(anchor="w", padx=22, pady=(20, 6))
+        self._label(graph, "Capture → YOLO objects\nCapture → SCRFD faces → SFace private recognition + consented local gallery\nConsensus and cross-person tracking are declared extension points and are not executed.", size=10, color=self.MUTED, justify="left", anchor="nw", wraplength=850).pack(fill="both", expand=True, padx=22, pady=(0, 20))
+        return page
+
+    def _layer_requested(self) -> set[str]:
+        if self.layer_style.get() == "isolated":
+            selected = self.isolated_layer.get()
+            return {"scrfd", "sface"} if selected == "sface" else {selected}
+        return {name for name, value in self.layer_flags.items() if value.get()}
+
+    def _update_layer_controls(self) -> None:
+        selected = self._layer_requested(); gallery_ready = gallery_is_ready(GALLERY_PATH, self.config.get("sface"))
+        plan = make_plan("layer", selected, self.model_availability, gallery_ready, private_recognition=True)
+        state = "Blocked" if plan.blocked else "Ready"
+        self.layer_status.configure(text=f"{state}: " + plan.explanation(), fg=self.RED if plan.blocked else self.GREEN)
+
+    def start_layer_test(self) -> None:
+        plan = make_plan("layer", self._layer_requested(), self.model_availability,
+                         gallery_is_ready(GALLERY_PATH, self.config.get("sface")), private_recognition=True)
+        self._start_plan(plan)
 
     def _build_people(self) -> Any:
         tk = self.tk; page = self._page(); body = tk.Frame(page, bg=self.BG); body.pack(fill="both", expand=True)
@@ -236,7 +289,22 @@ class SpectraConsole:
         bar = tk.Frame(events, bg=self.SURFACE); bar.pack(fill="x", padx=18, pady=(16, 10)); self._label(bar, "Events", size=12, bold=True).pack(side="left")
         self.log_filter = tk.StringVar(value="All"); menu = tk.OptionMenu(bar, self.log_filter, "All", "Errors", "Warnings", "Info", command=lambda *_: self._render_events()); menu.configure(bg=self.SURFACE_2, fg=self.TEXT, activebackground=self.SURFACE_2, activeforeground=self.TEXT, relief="flat", highlightthickness=0); menu["menu"].configure(bg=self.SURFACE_2, fg=self.TEXT); menu.pack(side="right")
         self.event_list = tk.Listbox(events, bg="#08101c", fg=self.TEXT, selectbackground=self.BLUE, relief="flat", font=("Cascadia Mono", 9), takefocus=True); self.event_list.pack(fill="both", expand=True, padx=18, pady=(0, 18))
+        sessions = self._card(grid); sessions.pack(fill="x", pady=(14, 0))
+        header = tk.Frame(sessions, bg=self.SURFACE); header.pack(fill="x", padx=18, pady=(14, 6))
+        self._label(header, "Recent sessions", size=12, bold=True).pack(side="left")
+        self._button(header, "Refresh", self._refresh_sessions).pack(side="right")
+        self.session_list = tk.Listbox(sessions, bg="#08101c", fg=self.TEXT, selectbackground=self.BLUE, relief="flat", font=("Cascadia Mono", 9), height=4, takefocus=True); self.session_list.pack(fill="x", padx=18, pady=(0, 16))
+        self._refresh_sessions()
         return page
+
+    def _refresh_sessions(self) -> None:
+        if not hasattr(self, "session_list"):
+            return
+        self.session_list.delete(0, "end")
+        for item in list_sessions(APP_DIR / "diagnostics")[:8]:
+            self.session_list.insert("end", f"{item['session_id']}  ·  {item['state']}  ·  {item['frames']} frames")
+        if not self.session_list.size():
+            self.session_list.insert("end", "No sessions yet. Starting any test creates a unique local JSONL/CSV session.")
 
     def _build_export(self) -> Any:
         tk = self.tk; page = self._page(); card = self._card(page); card.pack(fill="x")
@@ -255,7 +323,7 @@ class SpectraConsole:
         return page
 
     def show_page(self, key: str) -> None:
-        titles = {"live": ("Live test", "See the camera, detections and current health in one place."), "people": ("People", "Enroll or remove consented local recognition templates."), "diagnostics": ("Diagnostics", "Review performance and clear, time-stamped events."), "export": ("Export results", "Save a new diagnostic session without exposing private identities.")}
+        titles = {"integrated": ("Integrated pipeline", "Locked, authoritative camera test using every required configured layer."), "layers": ("Layer testing", "Run an isolated layer or a dependency-safe custom combination."), "people": ("People / enrollment", "Enroll or remove consented local recognition templates."), "diagnostics": ("Sessions & diagnostics", "Review live health, timelines, and completed local sessions.")}
         for name, page in self.pages.items(): page.place_forget(); self.nav[name].configure(bg=self.SIDE, fg=self.MUTED)
         self.pages[key].place(relwidth=1, relheight=1); self.nav[key].configure(bg=self.SURFACE_2, fg=self.TEXT)
         self.page_title.configure(text=titles[key][0]); self.page_subtitle.configure(text=titles[key][1]); self._set_badge()
@@ -297,12 +365,15 @@ class SpectraConsole:
         capabilities = []
         if self.model_availability.get("yolo") == "available": capabilities.append("people, laptops and phones")
         if self.model_availability.get("scrfd") == "available": capabilities.append("faces")
-        if self.camera_candidates:
+        core_missing = [name.upper() for name in ("yolo", "scrfd") if self.model_availability.get(name) != "available"]
+        if core_missing:
+            self.live_status.configure(text="Blocked / incomplete — missing " + ", ".join(core_missing) + ". Set up the missing model to run Integrated Pipeline.", fg=self.RED)
+        elif self.camera_candidates:
             source = "default camera" if self.camera_candidates[0] == "0" else "saved camera"
             self.live_status.configure(text=f"Ready — {source}; detecting " + (", ".join(capabilities) if capabilities else "camera preview only"), fg=self.GREEN)
         else:
             self.live_status.configure(text="No camera was found yet. Connect one, then Start camera to retry.", fg=self.AMBER)
-        if any(state != "available" for state in self.model_availability.values()): self.missing_model_button.pack(side="right", padx=(8, 0), pady=16)
+        if core_missing: self.missing_model_button.pack(side="right", padx=(8, 0), pady=16)
         else: self.missing_model_button.pack_forget()
 
     def _open_file(self, variable: Any, title: str) -> None:
@@ -339,44 +410,33 @@ class SpectraConsole:
             self._event("info", "Detection options updated", "Restart the camera for local recognition changes to take effect."); dialog.destroy()
         self._button(dialog, "Apply", apply, primary=True).pack(anchor="e", padx=22, pady=20)
 
-    def _make_pipeline(self) -> CombinedPipeline:
-        class NoObjects:
-            def detect(self, _frame: Any) -> list[dict[str, Any]]: return []
-        objects: Any = NoObjects()
-        yolo_value = self.config.get("yolo", "")
-        if yolo_value and Path(yolo_value).is_file():
-            try:
-                objects = YoloPersonLaptopDetector(YoloConfig(model_path=Path(yolo_value)))
-                self._event("info", "Object model initialized", "YOLO is ready for people, laptops and phones.")
-            except Exception as exc: self.model_availability["yolo"] = "failed"; self._event("error", "Person/laptop model unavailable", str(exc))
-        faces: Any = EmptyFacePipeline(); scrfd = self.config.get("scrfd", ""); sface = self.config.get("sface", "")
-        if scrfd and Path(scrfd).is_file():
-            if self.recognition_enabled:
-                if not sface or not Path(sface).is_file(): raise ValueError("Private recognition needs an SFace model. Open Detection options or Advanced settings.")
-                templates = templates_from_gallery(GALLERY_PATH, sha256_file(Path(sface))) if GALLERY_PATH.exists() else {}
-                config = SFaceConfig(Path(scrfd), Path(sface)); faces = SFacePipeline(config, SCRFD500MDetector(config.detector_model), SFaceRecognizer(config.recognizer_model), templates)
-            else:
-                try:
-                    detector = SCRFD500MDetector(Path(scrfd))
-                    self._event("info", "Face model initialized", "SCRFD is ready for local live detection.")
-                except Exception as exc: self.model_availability["scrfd"] = "failed"; self._event("error", "Face model unavailable", str(exc)); return CombinedPipeline(faces, objects)
-                class DetectionOnly:
-                    def process_frame(self, frame: Any) -> Any:
-                        rows = [type("Face", (), {"bbox_xyxy": box[:4], "detection_score": float(box[4]), "state": "detection_only", "quality_reason": None, "score_age_ms": 0})() for box, _ in detector.detect(frame)]
-                        return type("Faces", (), {"faces": tuple(rows)})()
-                faces = DetectionOnly()
-        return CombinedPipeline(faces, objects)
+    def _make_pipeline(self) -> Any:
+        plan = make_plan("integrated", None, self.model_availability,
+                         gallery_is_ready(GALLERY_PATH, self.config.get("sface")), self.recognition_enabled)
+        return build_pipeline(plan, self.config, GALLERY_PATH)
 
     def start(self) -> None:
+        plan = make_plan("integrated", None, self.model_availability,
+                         gallery_is_ready(GALLERY_PATH, self.config.get("sface")), self.recognition_enabled)
+        self._start_plan(plan)
+
+    def _start_plan(self, plan: ExecutionPlan) -> None:
         if self.worker and self.worker.is_alive(): return
-        try: self.pipeline = self._make_pipeline()
-        except Exception as exc: self._event("error", "Camera could not start", str(exc)); return
+        if plan.blocked:
+            self.live_status.configure(text="Blocked / incomplete — " + plan.explanation(), fg=self.RED)
+            self.health_text.configure(text="Blocked", fg=self.RED)
+            self._event("error", "Test blocked", plan.explanation())
+            return
+        try: self.pipeline = build_pipeline(plan, self.config, GALLERY_PATH)
+        except Exception as exc: self._event("error", "Pipeline could not start", str(exc)); return
         source = self.config.get("camera") if self.config.get("camera") in self.camera_candidates else (self.camera_candidates[0] if self.camera_candidates else "0")
-        self.active_camera = str(source); self.stop.clear(); self.worker = CaptureWorker(self.pipeline, self.active_camera, self.inbox, self.stop, self.exporter, self._ground_truth() if self.exporter else None); self.worker.start()
+        provenance = {"session_mode": plan.mode, "enabled_layers": plan.active_layers, "layer_decisions": [{"layer": item.layer, "state": item.state, "reason": item.reason} for item in plan.decisions], "models": {key: value for key, value in {"yolo_sha256": _model_hash(self.config.get("yolo", "")), "scrfd_sha256": _model_hash(self.config.get("scrfd", "")), "sface_sha256": _model_hash(self.config.get("sface", ""))}.items() if value}, "privacy": {"identity_publication": "disabled", "face_person_association": "disabled", "captures": "not_retained"}}
+        self.exporter = DiagnosticExport(APP_DIR / "diagnostics", provenance); self.exporter.record_event("session_started", {"camera_source": str(source), "mode": plan.mode, "enabled_layers": plan.active_layers})
+        self.active_plan = plan; self.last_detection_signature = None; self.active_camera = str(source); self.stop.clear(); self.worker = CaptureWorker(self.pipeline, self.active_camera, self.inbox, self.stop, self.exporter, self._ground_truth(), plan); self.worker.start(); self._refresh_sessions()
         self.start_button.configure(state="disabled"); self.stop_button.configure(state="normal"); self.live_status.configure(text="Starting camera…", fg=self.MUTED); self._event("info", "Live test started", "Identity publication and face-to-person association remain disabled."); self._set_badge()
 
     def halt(self) -> None:
-        self.stop.set(); self.enrolling = False; self.start_button.configure(state="normal"); self.stop_button.configure(state="disabled"); self.live_status.configure(text="Camera stopped", fg=self.MUTED); self.health_text.configure(text="Stopped"); self._event("info", "Live test stopped", "The camera was released. Start again whenever you are ready."); self._set_badge()
+        self.stop.set(); self.enrolling = False; self.start_button.configure(state="normal"); self.stop_button.configure(state="disabled"); self.live_status.configure(text="Camera stopped", fg=self.MUTED); self.health_text.configure(text="Stopped"); self.diag_summary.configure(text="Test stopped. The session is finalized locally and remains available in Recent sessions."); self._event("info", "Live test stopped", "The camera was released. Start again whenever you are ready."); self.root.after(400, self._refresh_sessions); self._set_badge()
 
     def _poll(self) -> None:
         try:
@@ -409,7 +469,21 @@ class SpectraConsole:
         cards = {"fps": f"{fps}", "latency": f"{latency} ms", "dropped": str(metrics.get("dropped_frames", 0)), "errors": str(metrics.get("errors", 0))}
         for key, value in cards.items(): self.metric_cards[key].configure(text=value)
         visible = {kind for kind, enabled in (("face", self.show_faces), ("person", self.show_persons), ("laptop", self.show_laptops), ("phone", self.show_phones)) if enabled}
-        image = cv2.cvtColor(annotate(message.frame.copy(), result, visible), cv2.COLOR_BGR2RGB); h, w = image.shape[:2]; scale = min(950 / w, 650 / h, 1); image = cv2.resize(image, (int(w * scale), int(h * scale)))
+        image = annotate(message.frame.copy(), result, visible)
+        if counts["person"]:
+            stamp = str(result.get("captured_at", ""))[11:19] or time.strftime("%H:%M:%S")
+            label = f"PERSON DETECTED · {counts['person']} · {stamp} UTC"
+            cv2.rectangle(image, (10, 10), (min(image.shape[1] - 10, 430), 43), (58, 198, 139), -1)
+            cv2.putText(image, label, (18, 33), cv2.FONT_HERSHEY_SIMPLEX, .55, (8, 20, 16), 2)
+        private_faces = getattr(self.pipeline, "last_private_faces", ()) if self.recognition_enabled else ()
+        if any(getattr(face, "state", None) == "known" for face in private_faces):
+            # Local-only acknowledgement for an explicit opt-in. Names, scores, and
+            # biometric values stay out of the frame contract and every export.
+            label = "PRIVATE LOCAL MATCH · CONSENTED TEMPLATE"
+            top = 52 if counts["person"] else 10
+            cv2.rectangle(image, (10, top), (min(image.shape[1] - 10, 470), top + 33), (111, 78, 212), -1)
+            cv2.putText(image, label, (18, top + 23), cv2.FONT_HERSHEY_SIMPLEX, .55, (248, 250, 252), 2)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB); h, w = image.shape[:2]; scale = min(950 / w, 650 / h, 1); image = cv2.resize(image, (int(w * scale), int(h * scale)))
         photo = self.tk.PhotoImage(data=(f"P6 {image.shape[1]} {image.shape[0]} 255\n".encode() + image.tobytes()), format="PPM"); self.preview.configure(image=photo, text=""); self.preview.image = photo; self._set_badge()
 
     def begin_enrollment(self) -> None:
@@ -440,9 +514,15 @@ class SpectraConsole:
         try:
             model_hash = sha256_file(Path(self.config["sface"])); embedding = enrolled_embedding(self.samples)
             gallery = parse_gallery(GALLERY_PATH, model_hash) if GALLERY_PATH.exists() else new_gallery(model_hash, int(embedding.size)); person_id = "local-" + uuid.uuid4().hex[:12]
+            duplicate = matching_participant_id(gallery, embedding)
+            same_name = next((entry["participant_id"] for entry in gallery["participants"] if entry["display_name"].casefold() == self.person_name.get().strip().casefold()), None)
+            duplicate_entry = next((entry for entry in gallery["participants"] if entry["participant_id"] == duplicate), None)
+            person_id = duplicate or same_name or person_id
             quality = {"min_face_size_px": 80, "min_blur": 40, "observed_blur_min": round(min(self.blurs), 2), "observed_blur_max": round(max(self.blurs), 2)}
-            write_gallery_safely(GALLERY_PATH, update_participant(gallery, person_id, embedding, len(self.samples), quality, self.person_name.get().strip()))
-            self.enrolling = False; self.enroll_feedback.configure(text=f"{self.person_name.get().strip()} was saved locally with five quality-approved samples. No images were retained.", fg=self.GREEN); self._event("info", "Person enrolled", "A local template was saved; no face image was retained."); self._refresh_people()
+            display_name = duplicate_entry["display_name"] if duplicate_entry else self.person_name.get().strip()
+            write_gallery_safely(GALLERY_PATH, update_participant(gallery, person_id, embedding, len(self.samples), quality, display_name))
+            action = "updated an existing local template" if duplicate or same_name else "was saved locally"
+            self.enrolling = False; self.enroll_feedback.configure(text=f"{self.person_name.get().strip()} {action} with five quality-approved samples. No images were retained.", fg=self.GREEN); self._event("info", "Person enrolled", "A local template was saved or refreshed; no face image was retained."); self._refresh_people()
         except Exception as exc:
             self.enrolling = False; self.enroll_feedback.configure(text=f"Could not save enrollment: {exc}", fg=self.RED); self._event("error", "Enrollment save failed", str(exc))
 

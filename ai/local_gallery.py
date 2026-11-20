@@ -118,6 +118,20 @@ def update_participant(gallery: dict[str, Any], participant_id: str, embedding: 
     return gallery
 
 
+def matching_participant_id(gallery: dict[str, Any], embedding: np.ndarray, min_similarity: float = 0.75) -> str | None:
+    """Return an existing local ID for a high-similarity enrollment sample.
+
+    This is used only at local enrollment time to avoid duplicate templates. It
+    never feeds standard observations, exports, or backend-facing data.
+    """
+    candidate = _normalise_embedding(embedding)
+    for entry in gallery.get("participants", []):
+        stored = _normalise_embedding(entry.get("embedding"))
+        if stored.size == candidate.size and float(np.dot(candidate, stored)) >= min_similarity:
+            return str(entry["participant_id"])
+    return None
+
+
 def delete_participant(gallery: dict[str, Any], participant_id: str) -> dict[str, Any]:
     if not isinstance(participant_id, str) or not participant_id.strip():
         raise ValueError("participant ID must be a non-empty local ID")

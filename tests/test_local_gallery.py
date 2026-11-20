@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from ai.local_gallery import (delete_participant, new_gallery, parse_gallery,
-                              templates_from_gallery, update_participant,
+                              matching_participant_id, templates_from_gallery, update_participant,
                               write_gallery_safely)
 
 
@@ -44,3 +44,9 @@ def test_update_creates_backup_and_explicit_deletion_removes_only_requested_part
         assert backup is not None and backup.exists()
         write_gallery_safely(path, delete_participant(changed, "participant_1"))
         assert set(templates_from_gallery(path)) == {"participant_3"}
+
+
+def test_matching_participant_prevents_duplicate_enrollment():
+    gallery = update_participant(new_gallery("f" * 64, 2), "local-existing", np.array([3, 4]), 3, {}, "Me")
+    assert matching_participant_id(gallery, np.array([3, 4])) == "local-existing"
+    assert matching_participant_id(gallery, np.array([-4, 3])) is None

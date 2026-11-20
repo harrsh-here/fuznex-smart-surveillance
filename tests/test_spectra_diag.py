@@ -7,7 +7,7 @@ import numpy as np
 from ai.combined import CombinedPipeline
 from ai.console import EmptyFacePipeline, load_local_gallery, make_face_pipeline, private_face_status
 from ai.local_gallery import new_gallery, update_participant
-from ai.spectra_diag import DiagnosticExport, GroundTruth, decision, replay_frames
+from ai.spectra_diag import DiagnosticExport, GroundTruth, decision, list_sessions, replay_frames
 
 class Faces:
     def process_frame(self, frame): return type("Result", (), {"faces": ()})()
@@ -56,5 +56,7 @@ class SpectraTests(unittest.TestCase):
             rows = (Path(export.directory) / "detections.csv").read_text(encoding="utf-8")
             self.assertIn("true_positive", rows)
             self.assertEqual(len((Path(export.directory) / "events.jsonl").read_text().splitlines()), 1)
+            export.finalize("completed", {"mode": "replay"})
+            self.assertEqual(list_sessions(temp)[0]["session_id"], export.session_id)
 
 if __name__ == "__main__": unittest.main()

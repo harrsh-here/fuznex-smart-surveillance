@@ -45,6 +45,10 @@ class YoloPersonLaptopDetector:
         if not path.is_file():
             raise FileNotFoundError("Model unavailable: use the manifest to obtain a trusted local weight")
         os.environ.setdefault("YOLO_OFFLINE", "true")
+        runtime_dir = Path(__file__).resolve().parent.parent / "local_data" / "spectra" / "ultralytics"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        # Keep third-party machine settings inside SPECTRA's ignored local area.
+        os.environ.setdefault("YOLO_CONFIG_DIR", str(runtime_dir))
         try:
             import torch
             from ultralytics import YOLO

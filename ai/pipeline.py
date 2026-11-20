@@ -11,18 +11,19 @@ class SFacePipeline:
     def __init__(self, config:SFaceConfig, detector, recognizer, templates:dict[str,np.ndarray]|None=None, clock=time.monotonic):
         self.config=config; self.detector=detector; self.recognizer=recognizer; self.templates=templates or {}; self.clock=clock; self.frame_no=0
         self.tracker=MultiFaceTracker(config.association_iou,config.track_ttl_updates,ambiguity_margin=config.association_ambiguity_margin)
+        self.last_timings={"scrfd_ms":0.0,"sface_ms":0.0}
     def set_templates(self, templates:dict[str,np.ndarray]) -> None: self.templates={k:np.asarray(v,dtype=np.float32) for k,v in templates.items()}
     def reset_tracking(self) -> None:
         """Discard volatile identity state after a source reconnect or explicit reset."""
         self.tracker=MultiFaceTracker(self.config.association_iou,self.config.track_ttl_updates,ambiguity_margin=self.config.association_ambiguity_margin)
         self.frame_no=0
     def process_frame(self, frame:np.ndarray) -> FrameResult:
-        self.frame_no+=1; detections=self.detector.detect(frame); visible=self.tracker.update(detections,self.frame_no); now=self.clock()
+        self.frame_no+=1; detect_start=time.perf_counter(); detections=self.detector.detect(frame); self.last_timings={"scrfd_ms":(time.perf_counter()-detect_start)*1000,"sface_ms":0.0}; visible=self.tracker.update(detections,self.frame_no); now=self.clock()
         known:dict[str,Track]={}
         for track in visible:
             due=track.last_measurement is None or now-track.last_measurement>=self.config.recognition_refresh_seconds
             if due:
-                self._measure(track,frame,now)
+                measure_start=time.perf_counter(); self._measure(track,frame,now); self.last_timings["sface_ms"]+=(time.perf_counter()-measure_start)*1000
             if track.state=="known" and track.identity_id:
                 prior=known.get(track.identity_id)
                 if prior is None or (track.score or -2)>(prior.score or -2):

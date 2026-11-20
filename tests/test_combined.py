@@ -33,7 +33,8 @@ class CombinedTests(unittest.TestCase):
         with self.assertRaises(ValueError): YoloConfig("model.pt", device="metal")
 
     def test_identity_is_never_published_or_linked(self):
-        result = CombinedPipeline(Face(), Objects()).process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
+        pipeline = CombinedPipeline(Face(), Objects())
+        result = pipeline.process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
         face = result["detections"][0]
         self.assertIsNone(face["verified_identity"])
         self.assertIsNone(face["track"])
@@ -41,6 +42,8 @@ class CombinedTests(unittest.TestCase):
         self.assertIn("IDENTITY_ASSOCIATION_DISABLED", face["uncertainty_reasons"])
         self.assertEqual(face["quality"]["pixel_width"], 19.0)
         self.assertEqual(face["quality"]["landmarks"], "not_published_by_combined_contract")
+        self.assertEqual(len(pipeline.last_private_faces), 1)
+        self.assertNotIn("must-not-leak", repr(result))
 
     def test_partial_failure_is_sanitized(self):
         result = CombinedPipeline(Face(), Broken()).process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
