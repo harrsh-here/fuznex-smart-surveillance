@@ -39,6 +39,10 @@ class SpectraTests(unittest.TestCase):
         self.assertEqual(decision("laptop", True, GroundTruth(frozenset({"laptop"}))), "true_positive")
     def test_participant_requires_consent(self):
         with self.assertRaises(ValueError): GroundTruth(participant="participant_1")
+    def test_consented_participant_labels_are_not_capped(self):
+        self.assertEqual(GroundTruth(participant="person-005", consented=True).participant, "person-005")
+    def test_phone_ground_truth_is_supported(self):
+        self.assertEqual(decision("phone", True, GroundTruth(frozenset({"phone"}))), "true_positive")
     def test_replay_exports_non_overwriting_trace(self):
         pipe = CombinedPipeline(Faces(), Objects())
         with tempfile.TemporaryDirectory() as temp:

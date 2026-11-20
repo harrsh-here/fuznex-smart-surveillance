@@ -1,8 +1,8 @@
 """Privacy-preserving SPECTRA DIAG run accounting and headless replay.
 
 This module deliberately records only manually supplied, consented participant
-codes (participant_1..participant_3), never recognition candidates or face to
-person associations.  Frames are never written unless ``store_frames`` is set.
+codes, never recognition candidates or face to person associations. Frames are
+never written unless ``store_frames`` is set.
 """
 from __future__ import annotations
 
@@ -17,8 +17,7 @@ import uuid
 from typing import Any, Iterable
 
 VALID_BANDS = {"near", "middle", "far"}
-VALID_PARTICIPANTS = {"participant_1", "participant_2", "participant_3"}
-VALID_KINDS = {"face", "person", "laptop"}
+VALID_KINDS = {"face", "person", "laptop", "phone"}
 
 
 def utc_now() -> str:
@@ -35,11 +34,11 @@ class GroundTruth:
 
     def __post_init__(self) -> None:
         if not self.present <= VALID_KINDS:
-            raise ValueError("ground truth only supports face, person, laptop")
+            raise ValueError("ground truth only supports face, person, laptop, phone")
         if self.distance_band is not None and self.distance_band not in VALID_BANDS:
             raise ValueError("distance band must be near, middle, or far")
-        if self.participant is not None and self.participant not in VALID_PARTICIPANTS:
-            raise ValueError("participant must be participant_1, participant_2, or participant_3")
+        if self.participant is not None and not self.participant.strip():
+            raise ValueError("participant label cannot be empty")
         if self.participant and not self.consented:
             raise ValueError("participant labels require explicit consent")
 

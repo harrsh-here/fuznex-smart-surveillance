@@ -1,4 +1,4 @@
-"""SPECTRA DIAG local viewer and headless laptop replay.
+"""SPECTRA DIAG local viewer and headless object replay.
 
 ``python -m ai.console --yolo C:\\models\\yolo11n.pt --camera 0``
 ``python -m ai.console --yolo C:\\models\\yolo11n.pt --image C:\\test\\laptop.jpg``
@@ -60,7 +60,7 @@ def private_face_status(pipeline: SFacePipeline, image: Any) -> list[dict[str, A
 
 def annotate(frame: Any, result: dict[str, Any], visible: set[str]) -> Any:
     import cv2
-    colors={"face":(255,182,72), "person":(91,213,164), "laptop":(101,163,255)}
+    colors={"face":(255,182,72), "person":(91,213,164), "laptop":(101,163,255), "phone":(222,137,255)}
     for item in result["detections"]:
         if item["kind"] not in visible: continue
         x1,y1,x2,y2=(int(v) for v in item["bbox_xyxy"]); color=colors[item["kind"]]

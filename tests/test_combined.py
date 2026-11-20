@@ -17,6 +17,11 @@ class Objects:
         return [{"kind": "person", "bbox_xyxy": (0, 0, 50, 60), "detection_confidence": .8}]
 
 
+class PhoneObjects:
+    def detect(self, _frame):
+        return [{"kind": "phone", "bbox_xyxy": (5, 6, 25, 36), "detection_confidence": .8}]
+
+
 class Broken:
     def detect(self, _frame):
         raise RuntimeError("test failure")
@@ -41,6 +46,12 @@ class CombinedTests(unittest.TestCase):
         result = CombinedPipeline(Face(), Broken()).process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
         self.assertEqual(result["processing_errors"][0]["stage"], "object")
         self.assertEqual(len(result["detections"]), 1)
+
+    def test_phone_uses_the_coco_cell_phone_class_id(self):
+        result = CombinedPipeline(Face(), PhoneObjects()).process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
+        phone = next(item for item in result["detections"] if item["kind"] == "phone")
+        self.assertEqual(phone["class_id"], 67)
+        self.assertEqual(result["detection_trace"]["raw_emitted_counts"]["phone"], 1)
 
 
 if __name__ == "__main__":

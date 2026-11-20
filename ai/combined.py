@@ -67,11 +67,11 @@ class CombinedPipeline:
             branch_start = self.clock()
             for item in self.object_detector.detect(frame):
                 kind = item["kind"]
-                if kind not in {"person", "laptop"}:
+                if kind not in {"person", "laptop", "phone"}:
                     raise ValueError("object detector returned unsupported class")
                 detections.append({"kind": kind, "bbox_xyxy": _box(item["bbox_xyxy"], width, height),
                                    "detection_confidence": float(item["detection_confidence"]), "track": None,
-                                   "class_id": int(item.get("class_id", {"person": 0, "laptop": 63}[kind])),
+                                   "class_id": int(item.get("class_id", {"person": 0, "laptop": 63, "phone": 67}[kind])),
                                    "verified_identity": None, "identity_state": "not_applicable",
                                    "quality": None, "uncertainty_reasons": []})
             timings["object_ms"] = (self.clock() - branch_start) * 1000
@@ -82,7 +82,7 @@ class CombinedPipeline:
             detection["detection_id"] = f"d{index}"
         finished = self.clock()
         # Counts allow a duplicate-box report to be tied to a specific frame.
-        counts = {kind: sum(item["kind"] == kind for item in detections) for kind in ("face", "person", "laptop")}
+        counts = {kind: sum(item["kind"] == kind for item in detections) for kind in ("face", "person", "laptop", "phone")}
         return {"schema_version": SCHEMA_VERSION, "camera_id": camera_id, "stream_epoch": stream_epoch,
                 "frame_seq": frame_seq, "captured_at": captured_at or utc_now(),
                 "timestamp_source": "capture_host", "frame_size": {"width": width, "height": height},

@@ -1,4 +1,4 @@
-"""Portable YOLO person/laptop adapter.
+"""Portable YOLO people, laptop, and phone adapter.
 
 This adapter deliberately has no camera, UI, storage, or identity dependency.
 It loads only an explicitly supplied, locally verified COCO YOLO weight file.
@@ -13,7 +13,8 @@ import os
 import time
 from typing import Any
 
-COCO_CLASSES = {0: "person", 63: "laptop"}
+COCO_CLASSES = {0: "person", 63: "laptop", 67: "phone"}
+COCO_MODEL_NAMES = {0: "person", 63: "laptop", 67: "cell phone"}
 
 
 @dataclass(frozen=True)
@@ -53,8 +54,8 @@ class YoloPersonLaptopDetector:
             torch.set_num_threads(config.threads)
         start = time.perf_counter()
         self.model = YOLO(str(path), task="detect")
-        if any(self.model.names.get(index) != name for index, name in COCO_CLASSES.items()):
-            raise ValueError("Model must use the COCO person=0 and laptop=63 class mapping")
+        if any(self.model.names.get(index) != name for index, name in COCO_MODEL_NAMES.items()):
+            raise ValueError("Model must use the COCO person=0, laptop=63, and cell phone=67 class mapping")
         self.load_ms = (time.perf_counter() - start) * 1000
 
     def detect(self, frame: Any) -> list[dict[str, Any]]:
