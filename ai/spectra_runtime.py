@@ -65,7 +65,10 @@ def make_plan(mode: str, requested: set[str] | FrozenSet[str] | None, availabili
         raise ValueError("mode must be integrated or layer")
     if mode == "integrated":
         selected = {"capture", "yolo", "scrfd"}
-        if private_recognition:
+        # A private-label failure must not take down the normal camera test.
+        # Its operator opt-in is honoured only when the local prerequisites are
+        # ready; otherwise Integrated mode continues with detection.
+        if private_recognition and _available(availability, "sface") and gallery_ready:
             selected.add("sface")
     else:
         selected = {"capture"} | set(requested or set())
@@ -83,7 +86,12 @@ def make_plan(mode: str, requested: set[str] | FrozenSet[str] | None, availabili
             decisions.append(LayerDecision(layer, "blocked", "Required local model is unavailable."))
 
     if "sface" not in selected:
-        reason = "Private recognition requires explicit local opt-in." if mode == "integrated" else "Not selected for this layer test."
+        if mode == "integrated" and private_recognition and not _available(availability, "sface"):
+            reason = "Private recognition is unavailable because its local SFace model is missing."
+        elif mode == "integrated" and private_recognition and not gallery_ready:
+            reason = "Private recognition is unavailable until a compatible consented person is enrolled."
+        else:
+            reason = "Private recognition requires explicit local opt-in." if mode == "integrated" else "Not selected for this layer test."
         decisions.append(LayerDecision("sface", "disabled", reason))
     elif "scrfd" not in selected or not _available(availability, "scrfd"):
         decisions.append(LayerDecision("sface", "blocked", "SFace needs the SCRFD face-detection layer."))

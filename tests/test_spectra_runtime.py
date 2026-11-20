@@ -31,6 +31,14 @@ class RuntimePlanTests(unittest.TestCase):
         self.assertFalse(plan.blocked)
         self.assertEqual(set(plan.active_layers), {"capture", "yolo", "scrfd"})
 
+    def test_integrated_keeps_detection_running_when_private_gallery_is_unavailable(self):
+        plan = make_plan("integrated", None, {"yolo": "available", "scrfd": "available", "sface": "available"}, False, True)
+        self.assertFalse(plan.blocked)
+        self.assertEqual(set(plan.active_layers), {"capture", "yolo", "scrfd"})
+        sface = next(item for item in plan.decisions if item.layer == "sface")
+        self.assertEqual(sface.state, "disabled")
+        self.assertIn("compatible consented person", sface.reason)
+
     def test_sface_dependency_is_enforced(self):
         plan = make_plan("layer", {"sface"}, {"yolo": "available", "scrfd": "available", "sface": "available"}, True, True)
         self.assertTrue(plan.blocked)

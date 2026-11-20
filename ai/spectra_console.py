@@ -129,6 +129,7 @@ class SpectraConsole:
         self.inbox: queue.Queue[FrameMessage] = queue.Queue(maxsize=2); self.runtime_inbox: queue.Queue[tuple[dict[str, Any], dict[str, str], list[str], str | None]] = queue.Queue(maxsize=1); self.stop = threading.Event(); self.worker: CaptureWorker | None = None
         self.pipeline: Any | None = None; self.last_metrics: dict[str, Any] = {}; self.last_frame: Any = None; self.exporter: DiagnosticExport | None = None; self.active_plan: ExecutionPlan | None = None
         self.enrolling = False; self.samples: list[Any] = []; self.blurs: list[float] = []; self.events: list[tuple[str, str, str]] = []; self.model_availability: dict[str, str] = {}; self.camera_candidates: list[str] = []; self.active_camera: str | None = None; self.last_detection_signature: tuple[tuple[str, int], ...] | None = None
+        self.runtime_ready = False; self.start_requested = False
         self.show_faces = True; self.show_persons = True; self.show_laptops = True; self.show_phones = True
         # Disabled on a fresh install. An explicit local opt-in is retained so
         # the SFace branch is not silently omitted on a later launch.
@@ -353,8 +354,10 @@ class SpectraConsole:
 
     def _apply_runtime_discovery(self, config: dict[str, Any], availability: dict[str, str], cameras: list[str], error: str | None) -> None:
         if error:
+            self.runtime_ready = True
             self._event("warning", "Automatic setup incomplete", "Camera or model discovery could not finish. You can still start the camera or use Advanced Settings.")
             return
+        self.runtime_ready = True
         self.config, self.model_availability, self.camera_candidates = config, availability, cameras
         if cameras and self.config.get("camera") not in cameras:
             self.config["camera"] = cameras[0]
@@ -363,6 +366,9 @@ class SpectraConsole:
         missing = [name.upper() for name, state in availability.items() if state != "available"]
         self._event("info", "Local setup checked", ("Available: " + ", ".join(available) if available else "No compatible detection models found.") + (" · Missing: " + ", ".join(missing) if missing else ""))
         self._refresh_runtime_status()
+        if self.start_requested:
+            self.start_requested = False
+            self.root.after(1, self.start)
 
     def _refresh_runtime_status(self) -> None:
         if not hasattr(self, "live_status") or (self.worker and self.worker.is_alive()): return
@@ -389,7 +395,7 @@ class SpectraConsole:
                              gallery_is_ready(GALLERY_PATH, self.config.get("sface")))
             self.private_labels_button.configure(
                 text="Private labels: on" if self.recognition_enabled else "Private labels: off",
-                state="normal" if private_ready else "disabled")
+                state="normal" if self.model_availability.get("sface") == "available" else "disabled")
 
     def toggle_private_recognition(self) -> None:
         """Keep private recognition a deliberate, clear local preview choice."""
@@ -446,6 +452,11 @@ class SpectraConsole:
         return build_pipeline(plan, self.config, GALLERY_PATH)
 
     def start(self) -> None:
+        if not self.runtime_ready:
+            self.start_requested = True
+            self.live_status.configure(text="Checking local camera and models…", fg=self.MUTED)
+            self._event("info", "Preparing live test", "Checking the saved local camera and models before starting.")
+            return
         plan = make_plan("integrated", None, self.model_availability,
                          gallery_is_ready(GALLERY_PATH, self.config.get("sface")), self.recognition_enabled)
         self._start_plan(plan)
