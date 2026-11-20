@@ -13,7 +13,7 @@ from typing import Any, FrozenSet
 from ai.combined import CombinedPipeline
 from ai.config import SFaceConfig
 from ai.detection import SCRFD500MDetector
-from ai.local_gallery import parse_gallery, sha256_file, templates_from_gallery
+from ai.local_gallery import parse_gallery, sha256_file
 from ai.object_detection import YoloConfig, YoloPersonLaptopDetector
 from ai.pipeline import SFacePipeline
 from ai.recognition import SFaceRecognizer
@@ -141,9 +141,12 @@ def build_pipeline(plan: ExecutionPlan, config: dict[str, Any], gallery_path: Pa
             raise ValueError("SFace needs a local gallery path")
         sface_path = Path(config["sface"])
         face_config = SFaceConfig(Path(config["scrfd"]), sface_path)
-        templates = templates_from_gallery(gallery_path, sha256_file(sface_path))
+        gallery = parse_gallery(gallery_path, sha256_file(sface_path))
+        templates = {entry["participant_id"]: entry["embedding"] for entry in gallery["participants"]}
+        private_display_names = {entry["participant_id"]: entry["display_name"] for entry in gallery["participants"]}
         faces = SFacePipeline(face_config, SCRFD500MDetector(face_config.detector_model),
                               SFaceRecognizer(face_config.recognizer_model), templates)
     elif "scrfd" in plan.enabled:
         faces = DetectionOnlyFacePipeline(Path(config["scrfd"]))
-    return CombinedPipeline(faces, yolo, enabled_layers=plan.enabled, layer_decisions=plan.decisions)
+    return CombinedPipeline(faces, yolo, enabled_layers=plan.enabled, layer_decisions=plan.decisions,
+                            private_display_names=private_display_names if "sface" in plan.enabled else None)

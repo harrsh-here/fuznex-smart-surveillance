@@ -22,6 +22,12 @@ class PhoneObjects:
         return [{"kind": "phone", "bbox_xyxy": (5, 6, 25, 36), "detection_confidence": .8}]
 
 
+class UncertainFace:
+    def process_frame(self, _frame):
+        return SimpleNamespace(faces=(SimpleNamespace(bbox_xyxy=(1, 2, 20, 30), detection_score=.9,
+            state="uncertain", quality_reason="below threshold", score_age_ms=0, identity_id=None),))
+
+
 class Broken:
     def detect(self, _frame):
         raise RuntimeError("test failure")
@@ -33,7 +39,7 @@ class CombinedTests(unittest.TestCase):
         with self.assertRaises(ValueError): YoloConfig("model.pt", device="metal")
 
     def test_identity_is_never_published_or_linked(self):
-        pipeline = CombinedPipeline(Face(), Objects())
+        pipeline = CombinedPipeline(Face(), Objects(), private_display_names={"must-not-leak": "Local Test"})
         result = pipeline.process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
         face = result["detections"][0]
         self.assertIsNone(face["verified_identity"])
@@ -43,7 +49,15 @@ class CombinedTests(unittest.TestCase):
         self.assertEqual(face["quality"]["pixel_width"], 19.0)
         self.assertEqual(face["quality"]["landmarks"], "not_published_by_combined_contract")
         self.assertEqual(len(pipeline.last_private_faces), 1)
+        self.assertEqual(pipeline.private_known_labels()[0][1], "Local Test")
         self.assertNotIn("must-not-leak", repr(result))
+        self.assertNotIn("Local Test", repr(result))
+
+    def test_private_preview_labels_never_include_uncertain_candidates(self):
+        pipeline = CombinedPipeline(UncertainFace(), None, private_display_names={"must-not-leak": "Local Test"})
+        result = pipeline.process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)
+        self.assertEqual(pipeline.private_known_labels(), ())
+        self.assertNotIn("Local Test", repr(result))
 
     def test_partial_failure_is_sanitized(self):
         result = CombinedPipeline(Face(), Broken()).process_frame(np.zeros((80, 100, 3)), "cam", "epoch", 0)

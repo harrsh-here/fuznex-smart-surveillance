@@ -129,7 +129,10 @@ class SpectraConsole:
         self.inbox: queue.Queue[FrameMessage] = queue.Queue(maxsize=2); self.runtime_inbox: queue.Queue[tuple[dict[str, Any], dict[str, str], list[str], str | None]] = queue.Queue(maxsize=1); self.stop = threading.Event(); self.worker: CaptureWorker | None = None
         self.pipeline: Any | None = None; self.last_metrics: dict[str, Any] = {}; self.last_frame: Any = None; self.exporter: DiagnosticExport | None = None; self.active_plan: ExecutionPlan | None = None
         self.enrolling = False; self.samples: list[Any] = []; self.blurs: list[float] = []; self.events: list[tuple[str, str, str]] = []; self.model_availability: dict[str, str] = {}; self.camera_candidates: list[str] = []; self.active_camera: str | None = None; self.last_detection_signature: tuple[tuple[str, int], ...] | None = None
-        self.show_faces = True; self.show_persons = True; self.show_laptops = True; self.show_phones = True; self.recognition_enabled = False
+        self.show_faces = True; self.show_persons = True; self.show_laptops = True; self.show_phones = True
+        # Disabled on a fresh install. An explicit local opt-in is retained so
+        # the SFace branch is not silently omitted on a later launch.
+        self.recognition_enabled = bool(self.config.get("private_recognition_opt_in", False))
         self.distance = tk.StringVar(value="Not specified"); self.truth_flags = {kind: tk.BooleanVar(value=False) for kind in ("face", "person", "laptop", "phone")}
         self._style(); self._build_shell(); self.show_page("integrated"); self._refresh_people(); self._event("info", "Console ready", "Start an integrated test or open Layer testing.")
         self._discover_runtime(); self.root.after(30, self._poll); self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -185,6 +188,7 @@ class SpectraConsole:
         copy = tk.Frame(action, bg=self.SURFACE); copy.pack(side="left", padx=20, pady=16)
         self._label(copy, "Camera", size=12, bold=True).pack(anchor="w"); self.live_status = self._label(copy, "Ready to start", size=10, color=self.MUTED); self.live_status.pack(anchor="w", pady=(3, 0))
         self.missing_model_button = self._button(action, "Set up missing model", self.open_setup); self.missing_model_button.pack(side="right", padx=(8, 0), pady=16); self.missing_model_button.pack_forget()
+        self.private_labels_button = self._button(action, "Private labels: off", self.toggle_private_recognition); self.private_labels_button.pack(side="right", padx=(8, 0), pady=16)
         self.start_button = self._button(action, "Start camera", self.start, primary=True); self.start_button.pack(side="right", padx=(8, 18), pady=16)
         self.stop_button = self._button(action, "Stop", self.halt); self.stop_button.pack(side="right", pady=16); self.stop_button.configure(state="disabled")
         body = tk.Frame(page, bg=self.BG); body.pack(fill="both", expand=True)
@@ -370,11 +374,33 @@ class SpectraConsole:
             self.live_status.configure(text="Blocked / incomplete — missing " + ", ".join(core_missing) + ". Set up the missing model to run Integrated Pipeline.", fg=self.RED)
         elif self.camera_candidates:
             source = "default camera" if self.camera_candidates[0] == "0" else "saved camera"
-            self.live_status.configure(text=f"Ready — {source}; detecting " + (", ".join(capabilities) if capabilities else "camera preview only"), fg=self.GREEN)
+            private_ready = (self.model_availability.get("sface") == "available" and
+                             gallery_is_ready(GALLERY_PATH, self.config.get("sface")))
+            private_state = ("Private name labels are ready." if self.recognition_enabled and private_ready
+                             else "Private name labels are off." if private_ready
+                             else "Private name labels need a compatible enrollment.")
+            self.live_status.configure(text=f"Ready — {source}; detecting " + (", ".join(capabilities) if capabilities else "camera preview only") + " " + private_state, fg=self.GREEN)
         else:
             self.live_status.configure(text="No camera was found yet. Connect one, then Start camera to retry.", fg=self.AMBER)
         if core_missing: self.missing_model_button.pack(side="right", padx=(8, 0), pady=16)
         else: self.missing_model_button.pack_forget()
+        if hasattr(self, "private_labels_button"):
+            private_ready = (self.model_availability.get("sface") == "available" and
+                             gallery_is_ready(GALLERY_PATH, self.config.get("sface")))
+            self.private_labels_button.configure(
+                text="Private labels: on" if self.recognition_enabled else "Private labels: off",
+                state="normal" if private_ready else "disabled")
+
+    def toggle_private_recognition(self) -> None:
+        """Keep private recognition a deliberate, clear local preview choice."""
+        self.recognition_enabled = not self.recognition_enabled
+        self.config["private_recognition_opt_in"] = self.recognition_enabled
+        _save_config(self.config)
+        state = "on" if self.recognition_enabled else "off"
+        detail = ("Private labels will appear only for verified local matches after you start or restart the camera."
+                  if self.recognition_enabled else "Private labels are hidden. Detections and exports remain identity-free.")
+        self._event("info", "Private labels " + state, detail)
+        self._refresh_runtime_status()
 
     def _open_file(self, variable: Any, title: str) -> None:
         from tkinter import filedialog
@@ -407,7 +433,11 @@ class SpectraConsole:
             var = tk.BooleanVar(value=getattr(self, attr)); values[attr] = var; tk.Checkbutton(dialog, text=label, variable=var, bg=self.SURFACE, fg=self.TEXT, selectcolor="#08101c", activebackground=self.SURFACE, activeforeground=self.TEXT, takefocus=True).pack(anchor="w", padx=22, pady=4)
         def apply() -> None:
             for attr, var in values.items(): setattr(self, attr, var.get())
-            self._event("info", "Detection options updated", "Restart the camera for local recognition changes to take effect."); dialog.destroy()
+            self.config["private_recognition_opt_in"] = self.recognition_enabled
+            _save_config(self.config)
+            state = "enabled" if self.recognition_enabled else "disabled"
+            self._event("info", "Private recognition preference updated", f"Private local name labels are {state}. Restart the camera for the change to take effect.")
+            self._refresh_runtime_status(); dialog.destroy()
         self._button(dialog, "Apply", apply, primary=True).pack(anchor="e", padx=22, pady=20)
 
     def _make_pipeline(self) -> Any:
@@ -433,7 +463,9 @@ class SpectraConsole:
         provenance = {"session_mode": plan.mode, "enabled_layers": plan.active_layers, "layer_decisions": [{"layer": item.layer, "state": item.state, "reason": item.reason} for item in plan.decisions], "models": {key: value for key, value in {"yolo_sha256": _model_hash(self.config.get("yolo", "")), "scrfd_sha256": _model_hash(self.config.get("scrfd", "")), "sface_sha256": _model_hash(self.config.get("sface", ""))}.items() if value}, "privacy": {"identity_publication": "disabled", "face_person_association": "disabled", "captures": "not_retained"}}
         self.exporter = DiagnosticExport(APP_DIR / "diagnostics", provenance); self.exporter.record_event("session_started", {"camera_source": str(source), "mode": plan.mode, "enabled_layers": plan.active_layers})
         self.active_plan = plan; self.last_detection_signature = None; self.active_camera = str(source); self.stop.clear(); self.worker = CaptureWorker(self.pipeline, self.active_camera, self.inbox, self.stop, self.exporter, self._ground_truth(), plan); self.worker.start(); self._refresh_sessions()
-        self.start_button.configure(state="disabled"); self.stop_button.configure(state="normal"); self.live_status.configure(text="Starting camera…", fg=self.MUTED); self._event("info", "Live test started", "Identity publication and face-to-person association remain disabled."); self._set_badge()
+        self.start_button.configure(state="disabled"); self.stop_button.configure(state="normal"); self.live_status.configure(text="Starting camera…", fg=self.MUTED)
+        recognition_state = "Private local name labels are enabled for this preview only." if "sface" in plan.enabled else "Private local name labels are off; detections and exports remain identity-free."
+        self._event("info", "Live test started", recognition_state + " Identity publication and face-to-person association remain disabled."); self._set_badge()
 
     def halt(self) -> None:
         self.stop.set(); self.enrolling = False; self.start_button.configure(state="normal"); self.stop_button.configure(state="disabled"); self.live_status.configure(text="Camera stopped", fg=self.MUTED); self.health_text.configure(text="Stopped"); self.diag_summary.configure(text="Test stopped. The session is finalized locally and remains available in Recent sessions."); self._event("info", "Live test stopped", "The camera was released. Start again whenever you are ready."); self.root.after(400, self._refresh_sessions); self._set_badge()
@@ -475,14 +507,22 @@ class SpectraConsole:
             label = f"PERSON DETECTED · {counts['person']} · {stamp} UTC"
             cv2.rectangle(image, (10, 10), (min(image.shape[1] - 10, 430), 43), (58, 198, 139), -1)
             cv2.putText(image, label, (18, 33), cv2.FONT_HERSHEY_SIMPLEX, .55, (8, 20, 16), 2)
-        private_faces = getattr(self.pipeline, "last_private_faces", ()) if self.recognition_enabled else ()
-        if any(getattr(face, "state", None) == "known" for face in private_faces):
-            # Local-only acknowledgement for an explicit opt-in. Names, scores, and
-            # biometric values stay out of the frame contract and every export.
-            label = "PRIVATE LOCAL MATCH · CONSENTED TEMPLATE"
+        private_labels = self.pipeline.private_known_labels() if self.recognition_enabled and self.pipeline else ()
+        if private_labels:
+            # Names live only in this in-memory, explicitly opted-in local
+            # preview. They never enter result, events, exports, or logs.
+            label = "PRIVATE LOCAL MATCH" if len(private_labels) > 1 else f"PRIVATE LOCAL MATCH · {private_labels[0][1]}"
             top = 52 if counts["person"] else 10
             cv2.rectangle(image, (10, top), (min(image.shape[1] - 10, 470), top + 33), (111, 78, 212), -1)
             cv2.putText(image, label, (18, top + 23), cv2.FONT_HERSHEY_SIMPLEX, .55, (248, 250, 252), 2)
+            for face, display_name in private_labels:
+                x1, y1, _x2, _y2 = (int(value) for value in face.bbox_xyxy)
+                face_label = f"LOCAL · {display_name}"
+                cv2.rectangle(image, (max(0, x1), max(0, y1 - 25)),
+                              (min(image.shape[1] - 1, x1 + max(125, len(face_label) * 10)), max(0, y1 - 2)),
+                              (111, 78, 212), -1)
+                cv2.putText(image, face_label, (max(4, x1 + 5), max(17, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX, .48, (248, 250, 252), 1)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB); h, w = image.shape[:2]; scale = min(950 / w, 650 / h, 1); image = cv2.resize(image, (int(w * scale), int(h * scale)))
         photo = self.tk.PhotoImage(data=(f"P6 {image.shape[1]} {image.shape[0]} 255\n".encode() + image.tobytes()), format="PPM"); self.preview.configure(image=photo, text=""); self.preview.image = photo; self._set_badge()
 

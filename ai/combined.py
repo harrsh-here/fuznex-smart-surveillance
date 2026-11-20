@@ -31,7 +31,8 @@ def _box(value: Any, width: int, height: int) -> list[float]:
 class CombinedPipeline:
     def __init__(self, face_pipeline: Any | None, object_detector: Any | None, clock=time.perf_counter,
                  enabled_layers: frozenset[str] | set[str] | None = None,
-                 layer_decisions: tuple[Any, ...] | list[Any] = ()) -> None:
+                 layer_decisions: tuple[Any, ...] | list[Any] = (),
+                 private_display_names: dict[str, str] | None = None) -> None:
         self.face_pipeline = face_pipeline
         self.object_detector = object_detector
         self.clock = clock
@@ -41,6 +42,20 @@ class CombinedPipeline:
         # recognition indicator only. It is never copied into the frame contract,
         # event log, diagnostic export, or session summary.
         self.last_private_faces: tuple[Any, ...] = ()
+        # Memory-only data for the explicitly opted-in local preview. This
+        # mapping never enters the frame contract, a log, or an export.
+        self._private_display_names = dict(private_display_names or {})
+
+    def private_known_labels(self) -> tuple[tuple[Any, str], ...]:
+        """Return display labels for exact known matches, never candidates."""
+        labels: list[tuple[Any, str]] = []
+        for face in self.last_private_faces:
+            if getattr(face, "state", None) != "known":
+                continue
+            display_name = self._private_display_names.get(getattr(face, "identity_id", None))
+            if display_name:
+                labels.append((face, display_name))
+        return tuple(labels)
 
     def process_frame(self, frame: Any, camera_id: str, stream_epoch: str, frame_seq: int,
                       captured_at: str | None = None, acquired_at: float | None = None) -> dict[str, Any]:
