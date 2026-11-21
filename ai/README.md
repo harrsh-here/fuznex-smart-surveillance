@@ -79,6 +79,17 @@ For an IP stream, replace `--source 0` with a supported URL such as
 Git and shell history where possible. Without `--private-recognition`, faces
 remain detection-only and no names are displayed.
 
+## Kaggle video replay
+
+[`notebooks/kaggle_portable_ai.ipynb`](notebooks/kaggle_portable_ai.ipynb)
+checks out this branch read-only and runs `python -m ai.video_replay`; it does
+not reproduce model logic in notebook cells. Each execution creates a unique
+ignored `spectra-*` session with H.264 annotated video, metrics and sanitized
+logs. A private SFace gallery is accepted only after the operator explicitly
+enables it and must be attached as a private Kaggle input. Names, participant
+IDs, embeddings, gallery contents and face-to-person associations are excluded
+from the annotated output and exports.
+
 `python -m ai.spectra_console` starts the local Windows console. Its Integrated
 Pipeline is the locked default: it requires the discovered YOLO and SCRFD
 models, creates a unique session on every test, and blocks instead of silently
