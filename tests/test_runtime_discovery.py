@@ -2,6 +2,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from ai.runtime_discovery import discover_models
@@ -23,7 +24,10 @@ class RuntimeDiscoveryTests(unittest.TestCase):
     def test_stale_saved_path_is_not_reused(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); (root / "ai").mkdir(); (root / "ai" / "model-manifest.json").write_text('{"models": []}', encoding="utf-8")
-            result = discover_models(root, {"yolo": str(root / "missing.pt"), "hashes": {"yolo": "x"}})
+            # Discovery normally also checks the user's Downloads folder.  The
+            # test must not depend on unrelated local model artifacts there.
+            with patch("ai.runtime_discovery._roots", return_value=[]):
+                result = discover_models(root, {"yolo": str(root / "missing.pt"), "hashes": {"yolo": "x"}})
             self.assertEqual(result.availability["yolo"], "not_found")
             self.assertNotIn("yolo", result.config)
 

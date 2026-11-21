@@ -62,6 +62,23 @@ Use the official [OpenCV Zoo SFace model](https://github.com/opencv/opencv_zoo/t
 
 ## SPECTRA pipeline sessions
 
+## Minimal Windows live camera
+
+`ai.live_camera` is the direct OpenCV live preview. It uses the same runtime
+plan and `CombinedPipeline` as SPECTRA, but it does not write a diagnostic
+export, save frames, or copy a gallery. Press `s` to stop/start and `q` or
+Escape to close. `--private-recognition` is a local-only opt-in: display names
+are shown only for a `known` SFace result and stay in the window memory.
+
+```powershell
+python -m ai.live_camera --source 0 --yolo C:\models\yolo11n.pt --scrfd C:\models\det_500m.onnx --sface C:\models\face_recognition_sface_2021dec.onnx --gallery .\local_data\spectra\private-gallery.json --private-recognition
+```
+
+For an IP stream, replace `--source 0` with a supported URL such as
+`--source "rtsp://user:password@camera.example/live"`; keep credentials out of
+Git and shell history where possible. Without `--private-recognition`, faces
+remain detection-only and no names are displayed.
+
 `python -m ai.spectra_console` starts the local Windows console. Its Integrated
 Pipeline is the locked default: it requires the discovered YOLO and SCRFD
 models, creates a unique session on every test, and blocks instead of silently
