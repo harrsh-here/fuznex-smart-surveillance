@@ -107,7 +107,8 @@ def replay(args: argparse.Namespace) -> dict[str, Any]:
     # while the exact same command works locally with --device cpu.
     pipeline = build_pipeline(plan, config, args.private_gallery, yolo_options={"input_size": args.input_size,
                                                            "confidence": args.confidence,
-                                                           "device": args.device, "threads": args.threads})
+                                                           "device": args.device, "threads": args.threads},
+                              scrfd_options={"input_size": (args.face_input_size, args.face_input_size), "device": args.device})
     input_path = args.input.resolve()
     capture = cv2.VideoCapture(str(input_path))
     if not capture.isOpened():
@@ -115,7 +116,8 @@ def replay(args: argparse.Namespace) -> dict[str, Any]:
     output_root = args.output_dir.resolve(); output_root.mkdir(parents=True, exist_ok=True)
     exporter = DiagnosticExport(output_root, {
         "source": {"filename": input_path.name, "replay": "sequential", "frame_start": args.start_frame, "max_frames": args.max_frames},
-        "models": {"availability": availability, "selected": {key: Path(value).name for key, value in config.items() if key in {"yolo", "scrfd", "sface"}}},
+        "models": {"availability": availability, "selected": {key: Path(value).name for key, value in config.items() if key in {"yolo", "scrfd", "sface"}},
+                   "execution_providers": {"scrfd": getattr(getattr(pipeline.face_pipeline, "detector", None), "provider", "not_loaded"), "yolo_requested_device": args.device}},
         "layers": [item.__dict__ for item in plan.decisions],
         "privacy": {"identity_publication": "disabled", "private_gallery": "used_in_memory_only" if args.private_recognition else "not_used", "face_person_association": "disabled", "source_video_retained": "not copied"},
     })
@@ -155,6 +157,7 @@ def main() -> int:
     parser.add_argument("--private-gallery", type=Path, help="Private, consented gallery input; never copied or exported")
     parser.add_argument("--private-recognition", action="store_true", help="Explicit opt-in: enables SFace only with --sface and --private-gallery")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu"); parser.add_argument("--input-size", type=int, default=320)
+    parser.add_argument("--face-input-size", type=int, choices=(320, 640), default=640)
     parser.add_argument("--confidence", type=float, default=0.25); parser.add_argument("--threads", type=int, default=2)
     parser.add_argument("--start-frame", type=int, default=0); parser.add_argument("--max-frames", type=int)
     args = parser.parse_args()

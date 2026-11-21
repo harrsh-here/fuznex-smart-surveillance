@@ -110,8 +110,8 @@ def make_plan(mode: str, requested: set[str] | FrozenSet[str] | None, availabili
 
 class DetectionOnlyFacePipeline:
     """A real SCRFD adapter for tests where SFace is not enabled."""
-    def __init__(self, model_path: Path) -> None:
-        self.detector = SCRFD500MDetector(model_path)
+    def __init__(self, model_path: Path, input_size: tuple[int, int] = (640, 640), device: str = "cpu") -> None:
+        self.detector = SCRFD500MDetector(model_path, input_size=input_size, device=device)
         self.last_timings: dict[str, float] = {"scrfd_ms": 0.0, "sface_ms": 0.0}
 
     def reset_tracking(self) -> None:
@@ -137,7 +137,8 @@ def gallery_is_ready(gallery_path: Path, sface_path: str | Path | None) -> bool:
 
 
 def build_pipeline(plan: ExecutionPlan, config: dict[str, Any], gallery_path: Path | None = None,
-                   yolo_options: dict[str, Any] | None = None) -> CombinedPipeline:
+                   yolo_options: dict[str, Any] | None = None,
+                   scrfd_options: dict[str, Any] | None = None) -> CombinedPipeline:
     """Build only layers enabled by a non-blocked plan from the production components."""
     if plan.blocked:
         raise ValueError("Test is blocked: " + plan.explanation())
@@ -149,13 +150,16 @@ def build_pipeline(plan: ExecutionPlan, config: dict[str, Any], gallery_path: Pa
         if gallery_path is None:
             raise ValueError("SFace needs a local gallery path")
         sface_path = Path(config["sface"])
-        face_config = SFaceConfig(Path(config["scrfd"]), sface_path)
+        face_config = SFaceConfig(Path(config["scrfd"]), sface_path,
+                                  detector_input_size=(scrfd_options or {}).get("input_size", (640, 640)))
         gallery = parse_gallery(gallery_path, sha256_file(sface_path))
         templates = {entry["participant_id"]: entry["embedding"] for entry in gallery["participants"]}
         private_display_names = {entry["participant_id"]: entry["display_name"] for entry in gallery["participants"]}
-        faces = SFacePipeline(face_config, SCRFD500MDetector(face_config.detector_model),
+        faces = SFacePipeline(face_config, SCRFD500MDetector(face_config.detector_model,
+                              face_config.detector_threshold, face_config.detector_input_size,
+                              (scrfd_options or {}).get("device", "cpu")),
                               SFaceRecognizer(face_config.recognizer_model), templates)
     elif "scrfd" in plan.enabled:
-        faces = DetectionOnlyFacePipeline(Path(config["scrfd"]))
+        faces = DetectionOnlyFacePipeline(Path(config["scrfd"]), **(scrfd_options or {}))
     return CombinedPipeline(faces, yolo, enabled_layers=plan.enabled, layer_decisions=plan.decisions,
                             private_display_names=private_display_names if "sface" in plan.enabled else None)

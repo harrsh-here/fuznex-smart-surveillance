@@ -4,14 +4,24 @@ from pathlib import Path
 import numpy as np
 
 class SCRFD500MDetector:
-    def __init__(self, model_path: str | Path, threshold: float=0.55, input_size: tuple[int,int]=(640,640)):
+    def __init__(self, model_path: str | Path, threshold: float=0.55, input_size: tuple[int,int]=(640,640), device: str="cpu"):
         if (not isinstance(input_size, tuple) or len(input_size)!=2
                 or any(isinstance(value, bool) or not isinstance(value, int) or value<=0 for value in input_size)):
             raise ValueError("input_size must be a tuple of two positive integers")
+        if device not in {"cpu", "cuda"}:
+            raise ValueError("device must be 'cpu' or 'cuda'")
         # Validate configuration before importing the optional ONNX runtime so
         # callers receive a useful input error even in a minimal test install.
         from ai.scrfd_reference import SCRFD
-        self.threshold=threshold; self.input_size=tuple(input_size); self.backend=SCRFD(str(model_path)); self.backend.prepare(-1,input_size=self.input_size)
+        import onnxruntime
+        requested = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
+        providers = [provider for provider in requested if provider in set(onnxruntime.get_available_providers())] or ["CPUExecutionProvider"]
+        session = onnxruntime.InferenceSession(str(model_path), providers=providers)
+        self.threshold=threshold; self.input_size=tuple(input_size); self.device=device
+        self.provider = session.get_providers()[0]
+        self.backend=SCRFD(str(model_path), session=session)
+        # Negative context makes the reference adapter overwrite providers with CPU.
+        self.backend.prepare(0 if self.provider == "CUDAExecutionProvider" else -1, input_size=self.input_size)
     def detect(self, frame: np.ndarray) -> list[tuple[np.ndarray,np.ndarray]]:
         boxes, landmarks=self.backend.detect(frame,self.threshold,input_size=self.input_size)
         if boxes is None or landmarks is None: return []

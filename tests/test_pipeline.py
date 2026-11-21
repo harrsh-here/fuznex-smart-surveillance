@@ -23,6 +23,7 @@ class PipelineTests(unittest.TestCase):
     def test_detector_rejects_invalid_input_sizes_before_model_load(self):
         for value in (None,(0,320),(-1,320),(320,),[320,320],("320",320)):
             with self.assertRaises(ValueError): SCRFD500MDetector("not-loaded.onnx",input_size=value)
+        with self.assertRaises(ValueError): SCRFD500MDetector("not-loaded.onnx",device="not-a-device")
     def test_ambiguous_association_starts_fresh_tracks(self):
         tracker=MultiFaceTracker(iou_threshold=.1,ambiguity_margin=.2)
         k=np.zeros((5,2),dtype=np.float32)
