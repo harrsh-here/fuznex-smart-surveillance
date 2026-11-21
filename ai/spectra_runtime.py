@@ -136,14 +136,15 @@ def gallery_is_ready(gallery_path: Path, sface_path: str | Path | None) -> bool:
         return False
 
 
-def build_pipeline(plan: ExecutionPlan, config: dict[str, Any], gallery_path: Path | None = None) -> CombinedPipeline:
+def build_pipeline(plan: ExecutionPlan, config: dict[str, Any], gallery_path: Path | None = None,
+                   yolo_options: dict[str, Any] | None = None) -> CombinedPipeline:
     """Build only layers enabled by a non-blocked plan from the production components."""
     if plan.blocked:
         raise ValueError("Test is blocked: " + plan.explanation())
     yolo: Any | None = None
     faces: Any | None = None
     if "yolo" in plan.enabled:
-        yolo = YoloPersonLaptopDetector(YoloConfig(model_path=Path(config["yolo"])))
+        yolo = YoloPersonLaptopDetector(YoloConfig(model_path=Path(config["yolo"]), **(yolo_options or {})))
     if "sface" in plan.enabled:
         if gallery_path is None:
             raise ValueError("SFace needs a local gallery path")
